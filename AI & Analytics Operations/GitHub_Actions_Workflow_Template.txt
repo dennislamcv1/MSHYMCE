@@ -1,0 +1,837 @@
+================================================================================
+GitHub Actions WORKFLOW YAML TEMPLATE
+FraudShield MLOps Pipeline — CI/CD Automation
+================================================================================
+Document Version: 1.0
+Last Updated: 2026-07-30
+Classification: Internal — CI/CD Reference
+
+--------------------------------------------------------------------------------
+1. WORKFLOW OVERVIEW
+--------------------------------------------------------------------------------
+Repository:        github.com/fintech-corp/fraudshield-mlops
+Default Branch:    main
+Required Reviews:  1 (CODEOWNERS enforced)
+Branch Protection: Status checks must pass before merge
+
+Workflows:
+  1. ml-pipeline-test.yml       → Unit tests, linting, schema validation
+  2. ml-pipeline-build.yml      → Reproducible environment build, model training
+  3. ml-pipeline-validate.yml   → Model validation, fairness checks, performance gates
+  4. ml-pipeline-promote.yml    → Model registry promotion (Staging → Production)
+  5. ml-pipeline-deploy.yml     → Canary deployment to Azure ML Managed Online Endpoint
+  6. ml-pipeline-rollback.yml   → Automated rollback trigger + manual rollback
+
+--------------------------------------------------------------------------------
+2. WORKFLOW 1: TEST (ml-pipeline-test.yml)
+--------------------------------------------------------------------------------
+
+name: ML Pipeline — Test
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'data/schemas/**'
+      - '.github/workflows/ml-pipeline-test.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'data/schemas/**'
+
+env:
+  PYTHON_VERSION: '3.11'
+  AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  AZURE_RESOURCE_GROUP: 'fraud-ml-rg'
+  AZURE_WORKSPACE_NAME: 'fraud-ml-workspace'
+
+jobs:
+  lint-and-format:
+    name: Lint & Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install black==24.4.2 flake8==7.0.0 isort==5.13.2
+
+      - name: Run Black format check
+        run: black --check --diff src/ tests/
+
+      - name: Run Flake8 linting
+        run: flake8 src/ tests/ --max-line-length=100 --extend-ignore=E203,W503
+
+      - name: Run isort check
+        run: isort --check-only --diff src/ tests/
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint-and-format
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          pip install -e .
+
+      - name: Run pytest with coverage
+        run: |
+          pytest tests/unit/             --cov=src             --cov-report=xml             --cov-report=term-missing             --cov-fail-under=85
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: true
+
+  schema-validation:
+    name: Data Schema Validation
+    runs-on: ubuntu-latest
+    needs: lint-and-format
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Validate training data schema
+        run: python scripts/validate_schema.py --schema data/schemas/training_schema.json --sample data/samples/train_sample.parquet
+
+      - name: Validate inference data schema
+        run: python scripts/validate_schema.py --schema data/schemas/inference_schema.json --sample data/samples/inference_sample.json
+
+      - name: Validate feature store schema
+        run: python scripts/validate_schema.py --schema data/schemas/feature_schema.json --sample data/samples/feature_sample.parquet
+
+      - name: Check for schema drift (vs. production baseline)
+        run: python scripts/check_schema_drift.py --baseline data/schemas/production_baseline.json --current data/schemas/training_schema.json --threshold 0.05
+
+--------------------------------------------------------------------------------
+3. WORKFLOW 2: BUILD (ml-pipeline-build.yml)
+--------------------------------------------------------------------------------
+
+name: ML Pipeline — Build
+
+on:
+  workflow_run:
+    workflows: ["ML Pipeline — Test"]
+    types: [completed]
+    branches: [main]
+
+env:
+  PYTHON_VERSION: '3.11'
+  AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  AZURE_RESOURCE_GROUP: 'fraud-ml-rg'
+  AZURE_WORKSPACE_NAME: 'fraud-ml-workspace'
+  MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+
+jobs:
+  build-environment:
+    name: Build Reproducible Environment
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Build conda environment from lock file
+        run: |
+          conda env create -f environment.yml -n fraudshield-build
+          conda activate fraudshield-build
+          python -c "import xgboost; print(xgboost.__version__)"
+          python -c "import sklearn; print(sklearn.__version__)"
+
+      - name: Export exact environment snapshot
+        run: |
+          conda env export --no-builds > environment-exact.yml
+          pip freeze > requirements-exact.txt
+
+      - name: Upload environment artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: environment-snapshot
+          path: |
+            environment-exact.yml
+            requirements-exact.txt
+
+  train-model:
+    name: Train Model on Azure ML Compute
+    runs-on: ubuntu-latest
+    needs: build-environment
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Install Azure ML CLI v2
+        run: az extension add -n ml -y
+
+      - name: Set Azure defaults
+        run: |
+          az account set --subscription ${{ env.AZURE_SUBSCRIPTION_ID }}
+          az configure --defaults workspace=${{ env.AZURE_WORKSPACE_NAME }} group=${{ env.AZURE_RESOURCE_GROUP }}
+
+      - name: Submit training job to Azure ML
+        run: |
+          az ml job create             --file pipelines/train-fraud-model.yml             --set inputs.training_data.path=azureml:fraud-training-data:3             --set inputs.model_name=fraud-detection-xgboost             --set inputs.seed=42             --query name -o tsv > job_name.txt
+
+      - name: Wait for training completion
+        run: |
+          JOB_NAME=$(cat job_name.txt)
+          az ml job show --name $JOB_NAME --query status -o tsv
+          # Poll until Completed or Failed (max 2 hours)
+          timeout 7200 bash -c '
+            while true; do
+              STATUS=$(az ml job show --name '$JOB_NAME' --query status -o tsv)
+              echo "Job status: $STATUS"
+              if [ "$STATUS" == "Completed" ]; then exit 0; fi
+              if [ "$STATUS" == "Failed" ] || [ "$STATUS" == "Canceled" ]; then exit 1; fi
+              sleep 60
+            done
+          '
+
+      - name: Capture MLflow run ID
+        run: |
+          JOB_NAME=$(cat job_name.txt)
+          az ml job show --name $JOB_NAME --query properties.mlflow_run_id -o tsv > mlflow_run_id.txt
+
+      - name: Upload MLflow run ID
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlflow-run-id
+          path: mlflow_run_id.txt
+
+--------------------------------------------------------------------------------
+4. WORKFLOW 3: VALIDATE (ml-pipeline-validate.yml)
+--------------------------------------------------------------------------------
+
+name: ML Pipeline — Validate
+
+on:
+  workflow_run:
+    workflows: ["ML Pipeline — Build"]
+    types: [completed]
+    branches: [main]
+
+env:
+  AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  AZURE_RESOURCE_GROUP: 'fraud-ml-rg'
+  AZURE_WORKSPACE_NAME: 'fraud-ml-workspace'
+  MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+
+  # ── VALIDATION THRESHOLDS (from Scenario Business Cost Model) ──
+  THRESHOLD_AUC_MIN: '0.940'
+  THRESHOLD_F1_MIN: '0.860'
+  THRESHOLD_LATENCY_P99_MAX_MS: '120'
+  THRESHOLD_FPR_MAX: '0.020'
+  THRESHOLD_FNR_MAX: '0.100'
+  THRESHOLD_SHAP_STABILITY_MIN: '0.850'
+
+jobs:
+  model-validation:
+    name: Model Performance & Fairness Validation
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Download MLflow run ID
+        uses: actions/download-artifact@v4
+        with:
+          name: mlflow-run-id
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Fetch model metrics from MLflow
+        run: |
+          RUN_ID=$(cat mlflow_run_id.txt/mlflow_run_id.txt)
+          python scripts/fetch_mlflow_metrics.py             --run-id $RUN_ID             --output validation_results.json
+
+      - name: Validate performance gates
+        run: |
+          python scripts/validate_gates.py             --metrics validation_results.json             --gates '{"auc_roc": "${{ env.THRESHOLD_AUC_MIN }}", "f1_score": "${{ env.THRESHOLD_F1_MIN }}", "latency_p99": "${{ env.THRESHOLD_LATENCY_P99_MAX_MS }}", "fpr": "${{ env.THRESHOLD_FPR_MAX }}", "fnr": "${{ env.THRESHOLD_FNR_MAX }}", "shap_stability": "${{ env.THRESHOLD_SHAP_STABILITY_MIN }}"}'
+
+      - name: Validate fairness metrics
+        run: |
+          python scripts/validate_fairness.py             --metrics validation_results.json             --threshold 0.05
+
+      - name: Validate model explainability (SHAP)
+        run: |
+          python scripts/validate_shap.py             --run-id $(cat mlflow_run_id.txt/mlflow_run_id.txt)             --min-stability ${{ env.THRESHOLD_SHAP_STABILITY_MIN }}
+
+      - name: Generate validation report
+        run: |
+          python scripts/generate_validation_report.py             --metrics validation_results.json             --output validation_report.md
+
+      - name: Upload validation report
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-report
+          path: validation_report.md
+
+      - name: Post validation summary to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('validation_report.md', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Model Validation Report
+
+${report}`
+            });
+
+--------------------------------------------------------------------------------
+5. WORKFLOW 4: PROMOTE (ml-pipeline-promote.yml)
+--------------------------------------------------------------------------------
+
+name: ML Pipeline — Promote
+
+on:
+  workflow_run:
+    workflows: ["ML Pipeline — Validate"]
+    types: [completed]
+    branches: [main]
+
+env:
+  AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  AZURE_RESOURCE_GROUP: 'fraud-ml-rg'
+  AZURE_WORKSPACE_NAME: 'fraud-ml-workspace'
+  MODEL_NAME: 'fraud-detection-xgboost'
+
+jobs:
+  promote-to-staging:
+    name: Promote Model to Staging
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Install Azure ML CLI v2
+        run: az extension add -n ml -y
+
+      - name: Set Azure defaults
+        run: |
+          az account set --subscription ${{ env.AZURE_SUBSCRIPTION_ID }}
+          az configure --defaults workspace=${{ env.AZURE_WORKSPACE_NAME }} group=${{ env.AZURE_RESOURCE_GROUP }}
+
+      - name: Download MLflow run ID
+        uses: actions/download-artifact@v4
+        with:
+          name: mlflow-run-id
+
+      - name: Register model from training run
+        run: |
+          RUN_ID=$(cat mlflow_run_id.txt/mlflow_run_id.txt)
+          az ml model create             --name ${{ env.MODEL_NAME }}             --version $(date +%s)             --path azureml://jobs/$RUN_ID/outputs/model             --type mlflow_model             --tags "stage=staging" "eval_passed=true" "promoted_by=ci-cd" "promoted_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+      - name: Verify staging registration
+        run: |
+          LATEST=$(az ml model list --name ${{ env.MODEL_NAME }} --query "[?tags.stage=='Staging'] | [0].version" -o tsv)
+          echo "Staging model version: $LATEST"
+          if [ -z "$LATEST" ]; then exit 1; fi
+
+  promote-to-production:
+    name: Promote to Production (Manual Approval Required)
+    runs-on: ubuntu-latest
+    needs: promote-to-staging
+    environment:
+      name: production-model-promotion
+      url: https://ml.azure.com/model/${{ env.MODEL_NAME }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Install Azure ML CLI v2
+        run: az extension add -n ml -y
+
+      - name: Set Azure defaults
+        run: |
+          az account set --subscription ${{ env.AZURE_SUBSCRIPTION_ID }}
+          az configure --defaults workspace=${{ env.AZURE_WORKSPACE_NAME }} group=${{ env.AZURE_RESOURCE_GROUP }}
+
+      - name: Get latest staging version
+        id: get-staging
+        run: |
+          STAGING_VERSION=$(az ml model list --name ${{ env.MODEL_NAME }} --query "[?tags.stage=='Staging'] | [0].version" -o tsv)
+          echo "staging_version=$STAGING_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Transition to Production
+        run: |
+          az ml model update             --name ${{ env.MODEL_NAME }}             --version ${{ steps.get-staging.outputs.staging_version }}             --set tags.stage=Production             --set tags.promoted_to_prod_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)             --set tags.promoted_by=${{ github.actor }}
+
+      - name: Update champion alias
+        run: |
+          # Set champion alias to new production version
+          az ml model update             --name ${{ env.MODEL_NAME }}             --version ${{ steps.get-staging.outputs.staging_version }}             --set tags.alias=champion
+
+      - name: Notify team
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "Model ${{ env.MODEL_NAME }} v${{ steps.get-staging.outputs.staging_version }} promoted to Production by ${{ github.actor }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+--------------------------------------------------------------------------------
+6. WORKFLOW 5: DEPLOY (ml-pipeline-deploy.yml) — CANARY PATTERN
+--------------------------------------------------------------------------------
+
+name: ML Pipeline — Deploy (Canary)
+
+on:
+  workflow_run:
+    workflows: ["ML Pipeline — Promote"]
+    types: [completed]
+    branches: [main]
+
+  workflow_dispatch:
+    inputs:
+      canary_percentage:
+        description: 'Initial canary traffic percentage'
+        required: true
+        default: '10'
+        type: choice
+        options: ['5', '10', '20']
+
+env:
+  AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  AZURE_RESOURCE_GROUP: 'fraud-ml-rg'
+  AZURE_WORKSPACE_NAME: 'fraud-ml-workspace'
+  ENDPOINT_NAME: 'fraud-scoring-prod'
+  MODEL_NAME: 'fraud-detection-xgboost'
+  CANARY_DURATION_MINUTES: '30'
+
+jobs:
+  deploy-canary:
+    name: Deploy Canary (Green)
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Install Azure ML CLI v2
+        run: az extension add -n ml -y
+
+      - name: Set Azure defaults
+        run: |
+          az account set --subscription ${{ env.AZURE_SUBSCRIPTION_ID }}
+          az configure --defaults workspace=${{ env.AZURE_WORKSPACE_NAME }} group=${{ env.AZURE_RESOURCE_GROUP }}
+
+      - name: Get production model version
+        id: get-model
+        run: |
+          PROD_VERSION=$(az ml model list --name ${{ env.MODEL_NAME }} --query "[?tags.stage=='Production'] | [0].version" -o tsv)
+          echo "model_version=$PROD_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create green deployment
+        run: |
+          cat > green-deployment.yml << 'EOF'
+          $schema: https://azuremlschemas.azureedge.net/latest/managedOnlineDeployment.schema.json
+          name: green
+          endpoint_name: ${{ env.ENDPOINT_NAME }}
+          model: azureml:${{ env.MODEL_NAME }}:${{ steps.get-model.outputs.model_version }}
+          instance_type: Standard_DS3_v2
+          instance_count: 2
+          request_settings:
+            request_timeout_ms: 5000
+            max_concurrent_requests_per_instance: 10
+          liveness_probe:
+            initial_delay_seconds: 30
+            period_seconds: 10
+            failure_threshold: 3
+          readiness_probe:
+            initial_delay_seconds: 10
+            period_seconds: 10
+            success_threshold: 1
+          EOF
+
+          az ml online-deployment create             --file green-deployment.yml             --resource-group ${{ env.AZURE_RESOURCE_GROUP }}             --workspace-name ${{ env.AZURE_WORKSPACE_NAME }}
+
+      - name: Route canary traffic
+        run: |
+          CANARY_PCT=${{ github.event.inputs.canary_percentage || '10' }}
+          BLUE_PCT=$((100 - CANARY_PCT))
+
+          az ml online-endpoint update             --name ${{ env.ENDPOINT_NAME }}             --traffic "blue=$BLUE_PCT green=$CANARY_PCT"             --resource-group ${{ env.AZURE_RESOURCE_GROUP }}             --workspace-name ${{ env.AZURE_WORKSPACE_NAME }}
+
+      - name: Canary health check (5 min warm-up + 25 min observation)
+        run: |
+          echo "Waiting 5 minutes for warm-up..."
+          sleep 300
+
+          echo "Starting 25-minute canary observation..."
+          for i in {1..5}; do
+            echo "=== Check $i/5 ==="
+
+            # Check endpoint health
+            az ml online-endpoint show               --name ${{ env.ENDPOINT_NAME }}               --query "{state: provisioning_state, traffic: traffic}"               --resource-group ${{ env.AZURE_RESOURCE_GROUP }}               --workspace-name ${{ env.AZURE_WORKSPACE_NAME }}
+
+            # Check deployment health
+            az ml online-deployment show               --name green               --endpoint-name ${{ env.ENDPOINT_NAME }}               --query "{state: provisioning_state, requests: scoring_uri}"               --resource-group ${{ env.AZURE_RESOURCE_GROUP }}               --workspace-name ${{ env.AZURE_WORKSPACE_NAME }}
+
+            # Query Azure Monitor for latency (last 5 min)
+            echo "Querying Azure Monitor for p99 latency..."
+            # (In production, use Azure Monitor REST API or Log Analytics query)
+
+            sleep 300
+          done
+
+      - name: Auto-promote or auto-rollback decision
+        id: canary-decision
+        run: |
+          # This would query Azure Monitor metrics in production
+          # For template, we simulate the decision logic
+
+          # Query: p99 latency < 120ms AND error rate < 0.1% AND throughput > 25 txns/sec
+          LATENCY_P99=$(python scripts/query_monitor.py --metric latency_p99 --minutes 25)
+          ERROR_RATE=$(python scripts/query_monitor.py --metric error_rate --minutes 25)
+
+          echo "Canary p99 latency: ${LATENCY_P99}ms"
+          echo "Canary error rate: ${ERROR_RATE}%"
+
+          if (( $(echo "$LATENCY_P99 < 120" | bc -l) )) && (( $(echo "$ERROR_RATE < 0.1" | bc -l) )); then
+            echo "decision=promote" >> $GITHUB_OUTPUT
+            echo "Canary passed. Ready for full promotion."
+          else
+            echo "decision=rollback" >> $GITHUB_OUTPUT
+            echo "Canary failed. Triggering rollback."
+          fi
+
+  promote-full-traffic:
+    name: Promote to 100% Traffic
+    runs-on: ubuntu-latest
+    needs: deploy-canary
+    if: ${{ needs.deploy-canary.outputs.decision == 'promote' }}
+    steps:
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Install Azure ML CLI v2
+        run: az extension add -n ml -y
+
+      - name: Route 100% to green
+        run: |
+          az ml online-endpoint update             --name ${{ env.ENDPOINT_NAME }}             --traffic "blue=0 green=100"             --resource-group ${{ env.AZURE_RESOURCE_GROUP }}             --workspace-name ${{ env.AZURE_WORKSPACE_NAME }}
+
+      - name: Verify traffic shift
+        run: |
+          sleep 60
+          az ml online-endpoint show             --name ${{ env.ENDPOINT_NAME }}             --query "traffic"             --resource-group ${{ env.AZURE_RESOURCE_GROUP }}             --workspace-name ${{ env.AZURE_WORKSPACE_NAME }}
+
+      - name: Delete blue deployment (cleanup)
+        run: |
+          sleep 300  # Wait 5 min for connection drain
+          az ml online-deployment delete             --name blue             --endpoint-name ${{ env.ENDPOINT_NAME }}             --yes             --resource-group ${{ env.AZURE_RESOURCE_GROUP }}             --workspace-name ${{ env.AZURE_WORKSPACE_NAME }}
+
+      - name: Rename green to blue (for next deployment cycle)
+        run: |
+          # In Azure ML, we keep "green" as the new "blue" for next cycle
+          # Or create a new blue deployment with the same config
+          echo "Deployment cycle complete. Green is now production."
+
+      - name: Notify success
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "Canary deployment successful! 100% traffic now on green. Blue deployment cleaned up."
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+--------------------------------------------------------------------------------
+7. WORKFLOW 6: ROLLBACK (ml-pipeline-rollback.yml)
+--------------------------------------------------------------------------------
+
+name: ML Pipeline — Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Rollback reason'
+        required: true
+        type: string
+      target_version:
+        description: 'Target model version to rollback to (optional, defaults to previous)'
+        required: false
+        type: string
+
+  # Auto-triggered by drift detection or monitoring alerts
+  repository_dispatch:
+    types: [auto-rollback-triggered]
+
+env:
+  AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  AZURE_RESOURCE_GROUP: 'fraud-ml-rg'
+  AZURE_WORKSPACE_NAME: 'fraud-ml-workspace'
+  ENDPOINT_NAME: 'fraud-scoring-prod'
+  MODEL_NAME: 'fraud-detection-xgboost'
+
+jobs:
+  rollback:
+    name: Emergency Rollback
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Install Azure ML CLI v2
+        run: az extension add -n ml -y
+
+      - name: Set Azure defaults
+        run: |
+          az account set --subscription ${{ env.AZURE_SUBSCRIPTION_ID }}
+          az configure --defaults workspace=${{ env.AZURE_WORKSPACE_NAME }} group=${{ env.AZURE_RESOURCE_GROUP }}
+
+      - name: Determine rollback target
+        id: target
+        run: |
+          if [ -n "${{ github.event.inputs.target_version }}" ]; then
+            TARGET_VERSION=${{ github.event.inputs.target_version }}
+          else
+            # Get the previous production version (not current)
+            TARGET_VERSION=$(az ml model list --name ${{ env.MODEL_NAME }} --query "[?tags.stage=='Production'] | sort_by(@, &version) | [-2].version" -o tsv)
+          fi
+          echo "target_version=$TARGET_VERSION" >> $GITHUB_OUTPUT
+          echo "Rolling back to version: $TARGET_VERSION"
+
+      - name: Create rollback deployment (emergency blue)
+        run: |
+          cat > rollback-deployment.yml << 'EOF'
+          $schema: https://azuremlschemas.azureedge.net/latest/managedOnlineDeployment.schema.json
+          name: blue-rollback
+          endpoint_name: ${{ env.ENDPOINT_NAME }}
+          model: azureml:${{ env.MODEL_NAME }}:${{ steps.target.outputs.target_version }}
+          instance_type: Standard_DS3_v2
+          instance_count: 3
+          request_settings:
+            request_timeout_ms: 5000
+            max_concurrent_requests_per_instance: 10
+          EOF
+
+          az ml online-deployment create             --file rollback-deployment.yml             --resource-group ${{ env.AZURE_RESOURCE_GROUP }}             --workspace-name ${{ env.AZURE_WORKSPACE_NAME }}
+
+      - name: Emergency traffic shift (0% to failed deployment)
+        run: |
+          az ml online-endpoint update             --name ${{ env.ENDPOINT_NAME }}             --traffic "blue-rollback=100 green=0"             --resource-group ${{ env.AZURE_RESOURCE_GROUP }}             --workspace-name ${{ env.AZURE_WORKSPACE_NAME }}
+
+      - name: Verify rollback health
+        run: |
+          sleep 60
+          az ml online-endpoint show             --name ${{ env.ENDPOINT_NAME }}             --query "{state: provisioning_state, traffic: traffic}"             --resource-group ${{ env.AZURE_RESOURCE_GROUP }}             --workspace-name ${{ env.AZURE_WORKSPACE_NAME }}
+
+      - name: Delete failed deployment
+        run: |
+          az ml online-deployment delete             --name green             --endpoint-name ${{ env.ENDPOINT_NAME }}             --yes             --resource-group ${{ env.AZURE_RESOURCE_GROUP }}             --workspace-name ${{ env.AZURE_WORKSPACE_NAME }}
+
+      - name: Rename rollback to blue
+        run: |
+          # In practice, rename or recreate as "blue" for next cycle
+          echo "Rollback complete. blue-rollback is now production."
+
+      - name: Log rollback incident
+        run: |
+          echo "Rollback Reason: ${{ github.event.inputs.reason || 'Auto-triggered by monitoring alert' }}" >> rollback_log.txt
+          echo "From Version: $(az ml model list --name ${{ env.MODEL_NAME }} --query '[?tags.stage==\'Production\'] | [0].version' -o tsv)" >> rollback_log.txt
+          echo "To Version: ${{ steps.target.outputs.target_version }}" >> rollback_log.txt
+          echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> rollback_log.txt
+          echo "Triggered By: ${{ github.actor }}" >> rollback_log.txt
+
+      - name: Upload rollback log
+        uses: actions/upload-artifact@v4
+        with:
+          name: rollback-log-${{ github.run_id }}
+          path: rollback_log.txt
+
+      - name: Notify team (CRITICAL)
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "EMERGENCY ROLLBACK EXECUTED. Reason: ${{ github.event.inputs.reason || 'Auto-triggered by monitoring alert' }}. Rolled back to version: ${{ steps.target.outputs.target_version }}. Triggered by: ${{ github.actor }}. Run ID: ${{ github.run_id }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Create incident ticket (PagerDuty)
+        run: |
+          curl -X POST             -H "Content-Type: application/json"             -H "Authorization: Token token=${{ secrets.PAGERDUTY_API_KEY }}"             -d '{
+              "incident": {
+                "type": "incident",
+                "title": "Fraud Model Emergency Rollback",
+                "service": {"id": "${{ secrets.PAGERDUTY_SERVICE_ID }}", "type": "service_reference"},
+                "urgency": "high",
+                "body": {
+                  "type": "incident_body",
+                  "details": "Model rollback executed. Reason: ${{ github.event.inputs.reason || 'Auto-triggered' }}. Target version: ${{ steps.target.outputs.target_version }}"
+                }
+              }
+            }'             https://api.pagerduty.com/incidents
+
+--------------------------------------------------------------------------------
+8. REUSABLE WORKFLOW: HEALTH CHECK
+--------------------------------------------------------------------------------
+
+# .github/workflows/reusable-health-check.yml
+
+name: Reusable — Health Check
+
+on:
+  workflow_call:
+    inputs:
+      endpoint_name:
+        required: true
+        type: string
+      expected_latency_p99:
+        required: true
+        type: number
+      expected_error_rate:
+        required: true
+        type: number
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Query endpoint health
+        run: |
+          ENDPOINT_STATE=$(az ml online-endpoint show             --name ${{ inputs.endpoint_name }}             --query provisioning_state -o tsv)
+
+          if [ "$ENDPOINT_STATE" != "Succeeded" ]; then
+            echo "Endpoint is not healthy: $ENDPOINT_STATE"
+            exit 1
+          fi
+
+          echo "Endpoint state: $ENDPOINT_STATE"
+
+      - name: Query Azure Monitor metrics
+        run: |
+          # Query Log Analytics for p99 latency and error rate
+          # This requires setting up a Log Analytics workspace query
+          echo "Querying Azure Monitor..."
+          # az monitor metrics list ...
+
+--------------------------------------------------------------------------------
+9. ENVIRONMENT PROTECTION RULES
+--------------------------------------------------------------------------------
+
+GitHub Environments configured:
+
+  production-model-promotion:
+    Required reviewers: 1 (Data Scientist must approve)
+    Wait timer: 0 minutes
+    Deployment branches: main only
+
+  production-deployment:
+    Required reviewers: 1 (MLOps Engineer must approve)
+    Wait timer: 5 minutes (cool-off period)
+    Deployment branches: main only
+
+  emergency-rollback:
+    Required reviewers: 0 (auto-approve for emergencies)
+    Deployment branches: main, hotfix/*
+
+--------------------------------------------------------------------------------
+10. SECRETS & VARIABLES REQUIRED
+--------------------------------------------------------------------------------
+
+Repository Secrets (Settings → Secrets and variables → Actions):
+  AZURE_CREDENTIALS          → Service Principal JSON for Azure Login
+  AZURE_SUBSCRIPTION_ID      → Azure subscription ID
+  MLFLOW_TRACKING_URI        → Azure ML MLflow tracking URI
+  SLACK_WEBHOOK_URL          → Slack incoming webhook for notifications
+  PAGERDUTY_API_KEY        → PagerDuty API key for incident creation
+  PAGERDUTY_SERVICE_ID     → PagerDuty service ID for fraud detection
+
+Repository Variables:
+  AZURE_RESOURCE_GROUP       → fraud-ml-rg
+  AZURE_WORKSPACE_NAME       → fraud-ml-workspace
+  ENDPOINT_NAME              → fraud-scoring-prod
+  MODEL_NAME                 → fraud-detection-xgboost
+
+================================================================================
+END OF GitHub Actions WORKFLOW YAML TEMPLATE
+================================================================================

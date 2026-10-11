@@ -1,0 +1,319 @@
+================================================================================
+THRESHOLD DECISION TEMPLATE
+FraudShield MLOps Pipeline — Drift Detection & Monitoring Thresholds
+================================================================================
+Document Version: 1.0
+Last Updated: 2026-07-30
+Classification: Internal — Operational Reference
+
+--------------------------------------------------------------------------------
+1. BUSINESS COST MODEL (Ground Truth for All Thresholds)
+--------------------------------------------------------------------------------
+Reference: Scenario Data Package, Section 8
+
+Metric                                    Value
+─────────────────────────────────────────────────────────────────────────
+Cost per False Negative (missed fraud)    $127   (avg fraud txn value)
+Cost per False Positive (blocked legit)   $8     (customer friction)
+Cost per hour of service downtime           $45,000 (revenue + SLA penalties)
+Cost per hour of delayed scoring (>200ms)   $3,200 (queue + manual review)
+Peak transaction volume                     100,000 txn/hr
+Average transaction volume                  42,000 txn/hr
+Baseline fraud rate                         2.3%
+
+Break-even principle:
+  If drift causes 1% drop in recall → expected loss = $1,270/hour
+  Therefore, detection + retraining cost must be < $1,270/hour to be ROI-positive.
+
+--------------------------------------------------------------------------------
+2. DRIFT DETECTION METHODS & THRESHOLDS
+--------------------------------------------------------------------------------
+
+2.1 POPULATION STABILITY INDEX (PSI)
+─────────────────────────────────────────────────────────────────────────
+Purpose:     Detect shifts in overall feature / prediction distributions
+Formula:     PSI = Σ (Actual% – Expected%) × ln(Actual% / Expected%)
+Bins:        10 deciles (equal-frequency binning on training baseline)
+
+Threshold Table:
+┌─────────────────┬─────────────┬─────────────────────────────────────────────┐
+│ PSI Range       │ Alert Level │ Action                                      │
+├─────────────────┼─────────────┼─────────────────────────────────────────────┤
+│ PSI < 0.10      │ 🟢 None     │ No action. Log only.                        │
+│ 0.10 ≤ PSI < 0.20 │ 🟡 Low    │ Log + daily review. Monitor for 24h.        │
+│ 0.20 ≤ PSI < 0.25 │ 🟠 Medium │ Alert (Slack). Schedule retraining review.  │
+│ PSI ≥ 0.25      │ 🔴 High     │ Auto-alert + pause promotion + trigger review│
+└─────────────────┴─────────────┴─────────────────────────────────────────────┘
+
+Rationale for PSI ≥ 0.25 as Critical:
+  • At 100K txn/hr, a PSI of 0.25 corresponds to ~12% of transactions
+    falling into distribution bins that shifted significantly.
+  • Historical Incident #1 (Silent Drift): PSI was ~0.31 when detected.
+    Undetected for 6 days → $340K loss.
+  • At PSI = 0.25, expected recall drop ≈ 0.8% → $1,016/hour loss.
+    Detection cost (Stream Analytics 6 SU + Azure Function) ≈ $45/hour.
+    ROI = $1,016 / $45 = 22.6× positive.
+  • Threshold chosen to catch drift BEFORE it reaches Incident #1 severity.
+
+Applied to:
+  • Input feature distributions (top 10 features by importance)
+  • Prediction score distributions (fraud probability)
+  • Per-merchant-category distributions (critical for partner onboarding)
+
+Computation Window:  Tumbling 5-minute windows (Azure Stream Analytics)
+Baseline Refresh:     Weekly (every Sunday 02:00 UTC, low-traffic window)
+
+---
+
+2.2 KULLBACK-LEIBLER (KL) DIVERGENCE
+─────────────────────────────────────────────────────────────────────────
+Purpose:     Measure information loss between training and production distributions
+Formula:     KL(P || Q) = Σ P(x) × log(P(x) / Q(x))
+
+Threshold Table:
+┌──────────────────────┬─────────────┬────────────────────────────────────────┐
+│ KL Divergence        │ Alert Level │ Action                                 │
+├──────────────────────┼─────────────┼────────────────────────────────────────┤
+│ KL < 0.05            │ 🟢 None     │ No action.                             │
+│ 0.05 ≤ KL < 0.10     │ 🟡 Low      │ Log + daily review.                  │
+│ 0.10 ≤ KL < 0.15     │ 🟠 Medium   │ Alert + schedule retraining.           │
+│ KL ≥ 0.15            │ 🔴 High     │ Auto-alert + pause promotion.          │
+└──────────────────────┴─────────────┴────────────────────────────────────────┘
+
+Rationale for KL ≥ 0.15 as Critical:
+  • KL divergence is more sensitive to tail shifts than PSI.
+  • At KL = 0.15, the production distribution has diverged enough that
+    the model's calibration (probability scores) is likely compromised.
+  • Used as a secondary confirmation when PSI is elevated but not critical.
+  • Cross-reference: If PSI ≥ 0.25 AND KL ≥ 0.15 → escalate to PagerDuty immediately.
+
+Applied to:
+  • Full feature set (all 47 features, aggregated)
+  • SHAP value distributions (model explainability stability)
+
+Computation Window:  15-minute rolling window
+Baseline Refresh:    Weekly (same as PSI)
+
+---
+
+2.3 KOLMOGOROV-SMIRNOV (KS) TEST
+─────────────────────────────────────────────────────────────────────────
+Purpose:     Statistical test for significant distribution shift (two-sample)
+Formula:     D = sup_x | F_1(x) – F_2(x) |
+Null Hypothesis:  Production distribution = Training distribution
+
+Threshold Table:
+┌──────────────────────┬─────────────┬────────────────────────────────────────┐
+│ KS Statistic (D)     │ p-value     │ Action                                 │
+├──────────────────────┼─────────────┼────────────────────────────────────────┤
+│ D < 0.05             │ p > 0.05    │ 🟢 Fail to reject H₀. No action.       │
+│ 0.05 ≤ D < 0.10      │ 0.01 < p ≤ 0.05 │ 🟡 Reject H₀ at α=0.05. Review.  │
+│ 0.10 ≤ D < 0.15      │ 0.001 < p ≤ 0.01 │ 🟠 Reject H₀ at α=0.01. Alert.  │
+│ D ≥ 0.15             │ p ≤ 0.001   │ 🔴 Reject H₀ at α=0.001. Escalate.   │
+└──────────────────────┴─────────────┴────────────────────────────────────────┘
+
+Rationale for D ≥ 0.15 as Critical:
+  • At 100K txn/hr, sample size per 5-min window ≈ 8,333 transactions.
+  • With n ≈ 8,333, D = 0.15 corresponds to p < 0.001 (highly significant).
+  • This means the probability of observing this shift by chance is < 0.1%.
+  • Used for individual feature monitoring (per-feature KS test).
+  • If ≥ 3 features show D ≥ 0.15 simultaneously → system-wide drift alert.
+
+Applied to:
+  • Each of the top 15 features (individual monitoring)
+  • Prediction score distribution (overall model calibration)
+  • Per-segment: online vs. offline transactions, micro vs. large amounts
+
+Computation Window:  5-minute tumbling window, per feature
+Multiple Testing Correction:  Bonferroni (α_adj = 0.05 / 15 = 0.0033 per feature)
+
+---
+
+2.4 PERFORMANCE METRIC DRIFT
+─────────────────────────────────────────────────────────────────────────
+Purpose:     Detect degradation in model performance on live data
+Method:      Compare rolling performance vs. baseline on labeled feedback
+
+Threshold Table:
+┌─────────────────────────────┬─────────────┬─────────────────────────────────┐
+│ Metric Change               │ Alert Level │ Action                          │
+├─────────────────────────────┼─────────────┼─────────────────────────────────┤
+│ AUC-ROC drop < 0.01         │ 🟢 None     │ No action.                      │
+│ 0.01 ≤ AUC-ROC drop < 0.02  │ 🟡 Low      │ Log + review in next standup.   │
+│ 0.02 ≤ AUC-ROC drop < 0.03  │ 🟠 Medium   │ Alert + schedule retraining.    │
+│ AUC-ROC drop ≥ 0.03         │ 🔴 High     │ Auto-alert + pause + retrain.   │
+├─────────────────────────────┼─────────────┼─────────────────────────────────┤
+│ F1-Score drop < 0.02       │ 🟢 None     │ No action.                      │
+│ 0.02 ≤ F1-Score drop < 0.04 │ 🟡 Low      │ Log + review.                   │
+│ 0.04 ≤ F1-Score drop < 0.06 │ 🟠 Medium   │ Alert + schedule retraining.    │
+│ F1-Score drop ≥ 0.06       │ 🔴 High     │ Auto-alert + pause + retrain.   │
+├─────────────────────────────┼─────────────┼─────────────────────────────────┤
+│ Recall drop < 0.01          │ 🟢 None     │ No action.                      │
+│ 0.01 ≤ Recall drop < 0.02   │ 🟡 Low      │ Log + review.                   │
+│ 0.02 ≤ Recall drop < 0.03   │ 🟠 Medium   │ Alert + schedule retraining.    │
+│ Recall drop ≥ 0.03          │ 🔴 High     │ Auto-alert + pause + retrain.   │
+└─────────────────────────────┴─────────────┴─────────────────────────────────┘
+
+Rationale:
+  • AUC-ROC drop ≥ 0.03: At 100K txn/hr, this means the model's ranking
+    ability has degraded enough that ~300 additional transactions per hour
+    would be mis-ranked, increasing false negatives by ~0.5%.
+    Expected cost: $635/hour. Detection cost: $45/hour. ROI = 14×.
+  • Recall is the most business-critical metric (missed fraud = $127 each).
+    Recall drop ≥ 0.03 means ~30 additional missed frauds per hour.
+    Expected cost: $3,810/hour. Immediate action required.
+
+Labeled Feedback Loop:
+  • Fraud confirmations arrive with 24–72 hour delay (bank chargeback data).
+  • Performance metrics computed on 7-day rolling labeled window.
+  • Updated daily at 06:00 UTC (after chargeback batch ingestion).
+
+--------------------------------------------------------------------------------
+3. INFRASTRUCTURE / LATENCY THRESHOLDS
+--------------------------------------------------------------------------------
+
+3.1 INFERENCE LATENCY
+─────────────────────────────────────────────────────────────────────────
+Target: p99 ≤ 120 ms per transaction (Scenario Constraint C2)
+
+Threshold Table:
+┌──────────────────────┬─────────────┬────────────────────────────────────────┐
+│ Latency (p99)        │ Alert Level │ Action                                 │
+├──────────────────────┼─────────────┼────────────────────────────────────────┤
+│ < 100 ms             │ 🟢 Healthy  │ No action.                             │
+│ 100–120 ms           │ 🟡 Warning  │ Monitor. Check feature store latency.  │
+│ 120–200 ms           │ 🟠 Degraded │ Alert. Scale endpoint instances +1.    │
+│ > 200 ms             │ 🔴 Critical │ Auto-scale + alert. If > 300ms for   │
+│                      │             │ 5 min → trigger rollback.              │
+└──────────────────────┴─────────────┴────────────────────────────────────────┘
+
+Rationale:
+  • > 200 ms: Queue buildup begins. At 100K txn/hr, 200ms latency means
+    the system can only process 18,000 txn/hr → 82,000 txn/hr backlog.
+    Cost: $3,200/hour (Scenario Data).
+  • > 300 ms for 5 min: 8,333 transactions delayed → $2,667 immediate cost.
+    Rollback cost: ~$150 (5 min of canary traffic at 10%).
+    Net savings: $2,517. Rollback is clearly justified.
+
+---
+
+3.2 ERROR RATE
+─────────────────────────────────────────────────────────────────────────
+Target: < 0.1% (1 error per 1,000 requests)
+
+Threshold Table:
+┌──────────────────────┬─────────────┬────────────────────────────────────────┐
+│ Error Rate           │ Alert Level │ Action                                 │
+├──────────────────────┼─────────────┼────────────────────────────────────────┤
+│ < 0.05%              │ 🟢 Healthy  │ No action.                             │
+│ 0.05% – 0.1%         │ 🟡 Warning  │ Monitor. Check endpoint logs.          │
+│ 0.1% – 0.5%          │ 🟠 Degraded │ Alert. Investigate root cause.       │
+│ > 0.5%               │ 🔴 Critical │ Auto-rollback if canary deployment.  │
+│                      │             │ If production, page on-call engineer.  │
+└──────────────────────┴─────────────┴────────────────────────────────────────┘
+
+Rationale:
+  • > 0.5% at 100K txn/hr = 500 failed requests/hour.
+  • Failed requests require manual review → $8 × 500 = $4,000/hour cost.
+  • If error rate spikes during canary → immediate rollback (no human decision).
+
+---
+
+3.3 THROUGHPUT DEGRADATION
+─────────────────────────────────────────────────────────────────────────
+Target: Sustained ≥ 28 txns/sec per instance (100K txn/hr ÷ 3.6 instances)
+
+Threshold Table:
+┌──────────────────────┬─────────────┬────────────────────────────────────────┐
+│ Throughput / Instance│ Alert Level │ Action                                 │
+├──────────────────────┼─────────────┼────────────────────────────────────────┤
+│ ≥ 28 txns/sec        │ 🟢 Healthy  │ No action.                             │
+│ 20–28 txns/sec       │ 🟡 Warning  │ Monitor. Consider scaling.             │
+│ 10–20 txns/sec       │ 🟠 Degraded │ Alert. Scale out + investigate.        │
+│ < 10 txns/sec        │ 🔴 Critical │ Page on-call. Potential capacity issue.│
+└──────────────────────┴─────────────┴────────────────────────────────────────┘
+
+--------------------------------------------------------------------------------
+4. ALERTING & ESCALATION MATRIX
+--------------------------------------------------------------------------------
+
+Alert Channel by Severity:
+┌─────────────┬──────────────────────────────────────────────────────────────┐
+│ Severity    │ Channels                                                     │
+├─────────────┼──────────────────────────────────────────────────────────────┤
+│ 🟡 Low      │ Slack #ml-alerts (non-urgent)                                │
+│ 🟠 Medium   │ Slack #ml-alerts + Email (MLOps Engineer + Data Scientist)   │
+│ 🔴 High     │ Slack #ml-alerts + PagerDuty (page on-call) + Email          │
+│ 🔴 Critical │ PagerDuty (page both team members) + Slack + Auto-action     │
+└─────────────┴──────────────────────────────────────────────────────────────┘
+
+Auto-Actions by Severity:
+┌─────────────┬──────────────────────────────────────────────────────────────┐
+│ Severity    │ Automated Actions                                            │
+├─────────────┼──────────────────────────────────────────────────────────────┤
+│ 🟡 Low      │ Log to Cosmos DB. Dashboard update.                          │
+│ 🟠 Medium   │ Create Jira ticket. Schedule retraining review.              │
+│ 🔴 High     │ Pause model promotion pipeline. Create PagerDuty incident.   │
+│ 🔴 Critical │ Trigger auto-rollback (if canary). Page both on-call.        │
+└─────────────┴──────────────────────────────────────────────────────────────┘
+
+Response SLA:
+┌─────────────┬──────────────────────────────────────────────────────────────┐
+│ Severity    │ First Response Time                                          │
+├─────────────┼──────────────────────────────────────────────────────────────┤
+│ 🟡 Low      │ Next business day                                            │
+│ 🟠 Medium   │ Within 4 hours                                               │
+│ 🔴 High     │ Within 1 hour                                                │
+│ 🔴 Critical │ Within 15 minutes (auto-rollback triggers in < 5 min)      │
+└─────────────┴──────────────────────────────────────────────────────────────┘
+
+--------------------------------------------------------------------------------
+5. THRESHOLD REVIEW CYCLE
+--------------------------------------------------------------------------------
+  • Monthly review of all thresholds (first Monday of each month)
+  • Adjust based on: business cost changes, model performance trends, incident post-mortems
+  • Threshold changes require: Data Scientist approval + MLOps Engineer approval
+  • Changes documented in: threshold_changelog.md (version-controlled)
+
+--------------------------------------------------------------------------------
+6. DECISION TREE: DRIFT DETECTED → WHAT NOW?
+--------------------------------------------------------------------------------
+
+                    Drift Alert Received
+                           │
+                           ▼
+              ┌────────────────────────────┐
+              │  Is this during canary     │
+              │  deployment?               │
+              └────────────────────────────┘
+                     │              │
+                    Yes            No
+                     │              │
+                     ▼              ▼
+        ┌─────────────────┐  ┌─────────────────┐
+        │ Auto-rollback   │  │ Check severity: │
+        │ immediately     │  │ PSI / KL / KS   │
+        │ (< 5 min)       │  │ / Performance   │
+        └─────────────────┘  └─────────────────┘
+                                    │
+                    ┌───────────────┼───────────────┐
+                    ▼               ▼               ▼
+                  Low            Medium           High
+                 (🟡)            (🟠)             (🔴)
+                  │               │                │
+                  ▼               ▼                ▼
+            Log & review    Alert + schedule   Pause promotion +
+            in standup      retraining         trigger retraining
+                                                   │
+                                                   ▼
+                                            If PSI ≥ 0.25
+                                            AND KL ≥ 0.15
+                                            AND D ≥ 0.15
+                                                   │
+                                                   ▼
+                                            Escalate to PagerDuty
+                                            (Critical incident)
+
+================================================================================
+END OF THRESHOLD DECISION TEMPLATE
+================================================================================

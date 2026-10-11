@@ -1,0 +1,379 @@
+================================================================================
+MLflow CONFIGURATION TEMPLATE
+FraudShield MLOps Pipeline — Azure Machine Learning Integration
+================================================================================
+Document Version: 1.0
+Last Updated: 2026-07-30
+Classification: Internal — Configuration Reference
+
+--------------------------------------------------------------------------------
+1. EXPERIMENT NAMING CONVENTIONS
+--------------------------------------------------------------------------------
+Format:    <project>-<task>-<version>
+Example:    fraud-detection-classification-v3
+
+Rules:
+  • Use lowercase kebab-case only
+  • Project prefix is mandatory: "fraud-detection-"
+  • Task descriptor: classification | regression | clustering | anomaly
+  • Version matches model major version (v1, v2, v3...)
+  • NEVER reuse experiment names across different model architectures
+
+Run Naming Format:
+  <model-type>-<config-id>-<timestamp>
+  Example: xgboost-tuned-hyperopt-20260730-143052
+
+  Components:
+    • model-type:    xgboost | lightgbm | randomforest | neuralnet
+    • config-id:   baseline | tuned-hyperopt | tuned-optuna | ensemble
+    • timestamp:   YYYYMMDD-HHMMSS (UTC)
+
+--------------------------------------------------------------------------------
+2. ARTIFACT STORAGE PATHS (Azure Blob Storage)
+--------------------------------------------------------------------------------
+Base URI:  azureml://subscriptions/<sub-id>/resourcegroups/<rg>/workspaces/<ws>/datastores/workspaceblobstore/paths/
+
+Container Structure:
+  experiments/
+    ├── <experiment-name>/
+    │   ├── <run-id>/
+    │   │   ├── artifacts/
+    │   │   │   ├── model/                    # Serialized model (MLflow format)
+    │   │   │   ├── preprocessing/            # sklearn pipelines, encoders
+    │   │   │   ├── shap-explainer/           # SHAP values & summary plots
+    │   │   │   ├── conda-env/                # environment.yml (pinned)
+    │   │   │   └── evaluation/
+    │   │   │       ├── confusion_matrix.png
+    │   │   │       ├── roc_curve.png
+    │   │   │       ├── precision_recall.png
+    │   │   │       └── feature_importance.csv
+    │   │   └── metrics/                      # MLflow metrics JSON
+    │   └── meta/                             # Experiment-level metadata
+    │       └── experiment_meta.json
+    └── archive/                              # Post-retirement storage
+
+Registry Path (Model Registry):
+  models:/fraud-detection-xgboost/
+    ├── versions/
+    │   ├── 1  (Staging)  → tags: {stage: staging, eval_passed: true, auc: 0.941}
+    │   ├── 2  (Staging)  → tags: {stage: staging, eval_passed: false, auc: 0.932}
+    │   ├── 3  (Production) → tags: {stage: production, eval_passed: true, auc: 0.947, deployed_at: 2026-07-15}
+    │   └── 4  (Archived) → tags: {stage: archived, retired_at: 2026-06-30}
+    └── aliases/
+        ├── champion  → points to version 3
+        └── challenger → points to version 1
+
+--------------------------------------------------------------------------------
+3. PARAMETER & METRIC LOGGING SCHEMA
+--------------------------------------------------------------------------------
+Required Parameters (log_params):
+  model.framework              = "xgboost"
+  model.version                = "2.1.0"
+  model.n_estimators           = 200
+  model.max_depth              = 8
+  model.learning_rate          = 0.05
+  model.subsample              = 0.8
+  model.colsample_bytree       = 0.8
+  model.reg_alpha              = 0.1
+  model.reg_lambda             = 1.0
+  training.batch_size          = 1024
+  training.epochs              = 100
+  training.early_stopping_rounds = 20
+  data.version                 = "2026-07-v3"
+  data.feature_set             = "v2.1"
+  data.train_rows              = 4500000
+  data.test_rows               = 500000
+  data.positive_ratio          = 0.023
+  seed.random                  = 42
+  seed.numpy                   = 42
+  seed.tensorflow              = 42
+
+Required Metrics (log_metrics):
+  eval.auc_roc                 = 0.947
+  eval.precision_at_0.5        = 0.835
+  eval.recall_at_0.5           = 0.918
+  eval.f1_score                = 0.874
+  eval.precision_at_0.7        = 0.912
+  eval.recall_at_0.7           = 0.856
+  eval.false_positive_rate     = 0.018
+  eval.false_negative_rate     = 0.082
+  eval.inference_latency_p50   = 45.2
+  eval.inference_latency_p99   = 112.4
+  eval.shap_stability_score    = 0.91
+  fairness.demographic_parity  = 0.03
+  fairness.equalized_odds      = 0.05
+
+Required Tags (set_tags):
+  project                      = "fraud-detection"
+  model_type                   = "xgboost"
+  pipeline_version             = "1.3.0"
+  engineer                     = "alice.ds"
+  data_source                  = "event-hubs-capture"
+  experiment_purpose           = "hyperparameter-tuning"
+  environment                  = "azure-ml-compute"
+  compliance.pci_dss           = "true"
+  compliance.soc2              = "true"
+  compliance.gdpr              = "true"
+
+--------------------------------------------------------------------------------
+4. MODEL VERSIONING & PROMOTION POLICY
+--------------------------------------------------------------------------------
+Stage Definitions:
+  • None      → Initial registration, no validation
+  • Staging   → Passed unit tests + schema validation + performance gates
+  • Production → Passed integration tests + canary deployment + 24h stability
+  • Archived  → Retired from production, retained for audit
+
+Promotion Gates (Staging → Production):
+  [G1] AUC-ROC ≥ 0.94  (baseline from holdout test)
+  [G2] F1-Score ≥ 0.86
+  [G3] p99 Inference Latency ≤ 120 ms (on Standard_DS3_v2)
+  [G4] False Positive Rate ≤ 0.02
+  [G5] SHAP stability score ≥ 0.85
+  [G6] Fairness metrics within ±0.05 of baseline
+  [G7] All CI/CD pipeline stages passed (green checkmark)
+  [G8] Manual approval from Data Scientist (GitHub Environment protection)
+
+Auto-Promotion Rules:
+  • If G1–G7 pass AND no manual block within 4 hours → auto-promote to Production
+  • If any gate fails → auto-reject, tag as "rejected", notify via Slack/Teams
+  • Production model must have alias "champion" before receiving traffic
+
+--------------------------------------------------------------------------------
+5. RETENTION & ARCHIVAL RULES
+--------------------------------------------------------------------------------
+Active Experiments (last 90 days):
+  • Stored in: Hot tier (workspaceblobstore)
+  • Access: Full MLflow UI + programmatic query
+  • Retention: 90 days from last run
+
+Archived Experiments (90 days – 2 years):
+  • Transitioned to: Cool tier
+  • Access: Read-only via MLflow UI, 30-second retrieval
+  • Retention: 2 years from experiment creation
+
+Deleted Experiments (> 2 years):
+  • Soft delete: 7 days (recoverable)
+  • Hard delete: After 7 days, permanently removed
+  • Exception: Production model versions retained for 7 years (compliance)
+
+Model Registry Retention:
+  • Production versions: 7 years (PCI-DSS requirement)
+  • Staging versions: 2 years
+  • Rejected versions: 90 days (for debugging)
+  • Archived versions: 7 years (audit trail)
+
+--------------------------------------------------------------------------------
+6. REPRODUCIBILITY REQUIREMENTS
+--------------------------------------------------------------------------------
+Environment Capture:
+  • Conda environment exported with pinned versions:
+      conda env export --no-builds > environment.yml
+  • OR pip freeze with hashes:
+      pip freeze --require-virtualenv > requirements.txt
+  • Docker image digest must be logged:
+      mlflow.log_param("docker.image_digest", "sha256:abc123...")
+
+Seed Management:
+  • All random seeds logged explicitly
+  • numpy.random.seed, random.seed, tf.random.set_seed
+  • Seed value stored in mlflow.log_param("seed.global", 42)
+
+Data Lineage:
+  • Training data version (DVC or Azure ML Data Asset version)
+  • Feature engineering pipeline version
+  • Preprocessing artifact hash (SHA-256)
+
+--------------------------------------------------------------------------------
+7. MLflow CONFIGURATION SNIPPETS
+--------------------------------------------------------------------------------
+
+--- 7.1 Python SDK: Connect to Azure ML Workspace ---
+
+import mlflow
+from azure.ai.ml import MLClient
+from azure.identity import DefaultAzureCredential
+
+# Connect to Azure ML Workspace
+credential = DefaultAzureCredential()
+ml_client = MLClient(
+    credential=credential,
+    subscription_id="<your-subscription-id>",
+    resource_group_name="fraud-ml-rg",
+    workspace_name="fraud-ml-workspace"
+)
+
+# Get MLflow tracking URI
+tracking_uri = ml_client.workspaces.get(
+    ml_client.workspace_name
+).mlflow_tracking_uri
+
+mlflow.set_tracking_uri(tracking_uri)
+print(f"MLflow tracking URI set to: {tracking_uri}")
+
+# Set experiment
+experiment_name = "fraud-detection-classification-v3"
+mlflow.set_experiment(experiment_name)
+
+--- 7.2 Training Script: Full Logging Pattern ---
+
+import mlflow
+import mlflow.xgboost
+from datetime import datetime
+import numpy as np
+import random
+
+# Reproducibility
+SEED = 42
+random.seed(SEED)
+np.random.seed(SEED)
+
+# Experiment setup
+mlflow.set_experiment("fraud-detection-classification-v3")
+run_name = f"xgboost-tuned-hyperopt-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"
+
+with mlflow.start_run(run_name=run_name) as run:
+
+    # ── Tags ──
+    mlflow.set_tags({
+        "project": "fraud-detection",
+        "model_type": "xgboost",
+        "pipeline_version": "1.3.0",
+        "engineer": "alice.ds",
+        "data_source": "event-hubs-capture",
+        "experiment_purpose": "hyperparameter-tuning",
+        "environment": "azure-ml-compute",
+        "compliance.pci_dss": "true",
+        "compliance.soc2": "true",
+        "compliance.gdpr": "true"
+    })
+
+    # ── Parameters ──
+    params = {
+        "model.framework": "xgboost",
+        "model.version": "2.1.0",
+        "model.n_estimators": 200,
+        "model.max_depth": 8,
+        "model.learning_rate": 0.05,
+        "model.subsample": 0.8,
+        "model.colsample_bytree": 0.8,
+        "model.reg_alpha": 0.1,
+        "model.reg_lambda": 1.0,
+        "training.batch_size": 1024,
+        "training.epochs": 100,
+        "training.early_stopping_rounds": 20,
+        "data.version": "2026-07-v3",
+        "data.feature_set": "v2.1",
+        "data.train_rows": 4500000,
+        "data.test_rows": 500000,
+        "data.positive_ratio": 0.023,
+        "seed.random": SEED,
+        "seed.numpy": SEED
+    }
+    mlflow.log_params(params)
+
+    # ── Training (your XGBoost code here) ──
+    # model = xgboost.XGBClassifier(**model_params)
+    # model.fit(X_train, y_train, eval_set=[(X_test, y_test)])
+
+    # ── Metrics ──
+    metrics = {
+        "eval.auc_roc": 0.947,
+        "eval.precision_at_0.5": 0.835,
+        "eval.recall_at_0.5": 0.918,
+        "eval.f1_score": 0.874,
+        "eval.precision_at_0.7": 0.912,
+        "eval.recall_at_0.7": 0.856,
+        "eval.false_positive_rate": 0.018,
+        "eval.false_negative_rate": 0.082,
+        "eval.inference_latency_p50": 45.2,
+        "eval.inference_latency_p99": 112.4,
+        "eval.shap_stability_score": 0.91,
+        "fairness.demographic_parity": 0.03,
+        "fairness.equalized_odds": 0.05
+    }
+    mlflow.log_metrics(metrics)
+
+    # ── Artifacts ──
+    mlflow.log_artifact("environment.yml", artifact_path="conda-env")
+    mlflow.log_artifact("confusion_matrix.png", artifact_path="evaluation")
+    mlflow.log_artifact("roc_curve.png", artifact_path="evaluation")
+    mlflow.log_artifact("feature_importance.csv", artifact_path="evaluation")
+
+    # ── Model Registration ──
+    # Only register if all gates pass
+    if metrics["eval.auc_roc"] >= 0.94 and metrics["eval.f1_score"] >= 0.86:
+        mlflow.xgboost.log_model(
+            model,
+            artifact_path="model",
+            registered_model_name="fraud-detection-xgboost"
+        )
+
+        # Transition to Staging
+        client = mlflow.tracking.MlflowClient()
+        latest_version = client.get_latest_versions(
+            "fraud-detection-xgboost",
+            stages=["None"]
+        )[0].version
+
+        client.transition_model_version_stage(
+            name="fraud-detection-xgboost",
+            version=latest_version,
+            stage="Staging"
+        )
+
+        client.set_model_version_tag(
+            name="fraud-detection-xgboost",
+            version=latest_version,
+            key="eval_passed",
+            value="true"
+        )
+
+        print(f"Model v{latest_version} promoted to Staging.")
+    else:
+        print("Model failed promotion gates. Not registered.")
+
+--- 7.3 Azure CLI: Register Model from Local Path ---
+
+# Register model artifact to Azure ML Model Registry
+az ml model create   --name fraud-detection-xgboost   --version 3   --path ./model   --type mlflow_model   --resource-group fraud-ml-rg   --workspace-name fraud-ml-workspace   --tags "stage=staging" "eval_passed=true" "auc=0.947" "f1=0.874"
+
+--- 7.4 Model Registry Query: Find Champion ---
+
+import mlflow
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Get the production (champion) model
+champion = client.get_model_version_by_alias(
+    name="fraud-detection-xgboost",
+    alias="champion"
+)
+print(f"Champion: version {champion.version}, AUC: {champion.tags.get('auc')}")
+
+# Get all staging candidates
+candidates = client.search_model_versions(
+    "name='fraud-detection-xgboost' and tags.stage='Staging'"
+)
+for candidate in candidates:
+    print(f"Candidate v{candidate.version}: AUC={candidate.tags.get('auc')}")
+
+--------------------------------------------------------------------------------
+8. GOVERNANCE & AUDIT CHECKLIST
+--------------------------------------------------------------------------------
+Before any experiment run is considered "production-ready":
+  □ Experiment name follows naming convention
+  □ All 15 required parameters are logged
+  □ All 12 required metrics are logged and meet thresholds
+  □ All 10 required tags are set (including compliance tags)
+  □ Environment file (conda/pip) is attached as artifact
+  □ SHAP explainability artifacts are attached
+  □ Model is registered with semantic version
+  □ Stage transition is documented with justification
+  □ Data lineage is traceable (data version logged)
+  □ Random seeds are documented and reproducible
+
+================================================================================
+END OF MLflow CONFIGURATION TEMPLATE
+================================================================================

@@ -1,0 +1,439 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" modified="2026-07-30T09:33:00.000Z" agent="Kimi AI" version="24.7.0" etag="fraud-mlops-pipeline" type="device">
+  <diagram name="Fraud MLOps Pipeline" id="fraud-mlops-v1">
+    <mxGraphModel dx="2400" dy="1600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1200" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- TITLE -->
+        <mxCell id="title" value="&lt;b&gt;FraudShield MLOps Pipeline — End-to-End Architecture&lt;/b&gt;&#xa;Azure ML | MLflow | GitHub Actions | Stream Analytics | Blob Storage&#xa;Peak: 100K txn/hr | p99 Latency ≤ 120ms | 99.9% Availability" style="text;html=1;strokeColor=none;fillColor=#F3F2F1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=14;fontColor=#323130;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="1520" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- LEGEND -->
+        <mxCell id="legend" value="&lt;b&gt;Legend:&lt;/b&gt; 🟦 Data Plane  |  🟩 Control Plane  |  🟨 Shared  |  ➡️ Data Flow  |  ➖ Control Signal" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=11;fontColor=#605E5C;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="600" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== DATA INGESTION LAYER ==================== -->
+        <mxCell id="layer-ingest-label" value="&lt;b&gt;1. DATA INGESTION&lt;/b&gt;&#xa;Owner: MLOps Engineer&#xa;Throughput: 100K txn/hr peak" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#0078D4;" vertex="1" parent="1">
+          <mxGeometry x="40" y="120" width="200" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="payment-gateway" value="&lt;b&gt;Payment Gateway&lt;/b&gt;&#xa;(POS / Web / Mobile)&#xa;⬆️ Out: JSON events" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1F0FF;strokeColor=#0078D4;fontColor=#0078D4;" vertex="1" parent="1">
+          <mxGeometry x="40" y="180" width="160" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="event-hubs" value="&lt;b&gt;Azure Event Hubs&lt;/b&gt;&#xa;Namespace: fraud-events-ns&#xa;16 partitions | Standard SKU&#xa;Retention: 24h | Buffer: ~1.7GB" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1F0FF;strokeColor=#0078D4;fontColor=#0078D4;" vertex="1" parent="1">
+          <mxGeometry x="260" y="180" width="180" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="arrow-gateway-to-hub" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0078D4;strokeWidth=2;" edge="1" parent="1" source="payment-gateway" target="event-hubs">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="label-gateway-to-hub" value="HTTPS/TLS 1.3&#xa;~28 txns/sec" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow-gateway-to-hub">
+          <mxGeometry x="-0.3" y="2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ==================== FEATURE STORE LAYER ==================== -->
+        <mxCell id="layer-feature-label" value="&lt;b&gt;2. FEATURE STORE&lt;/b&gt;&#xa;Owner: Data Scientist&#xa;Latency Target: &lt; 50ms retrieval" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#0078D4;" vertex="1" parent="1">
+          <mxGeometry x="40" y="300" width="200" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="feature-store" value="&lt;b&gt;Azure Managed Redis&lt;/b&gt;&#xa;(Feature Store)&#xa;47 features | TTL: 30d&#xa;Auto-scale: 2–8 shards&#xa;p99: &lt; 40ms" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1F0FF;strokeColor=#0078D4;fontColor=#0078D4;" vertex="1" parent="1">
+          <mxGeometry x="40" y="360" width="160" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="feature-pipeline" value="&lt;b&gt;Feature Engineering&lt;/b&gt;&#xa;Pipeline (Azure ML)&#xa;Batch: hourly&#xa;Incremental updates" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1F0FF;strokeColor=#0078D4;fontColor=#0078D4;" vertex="1" parent="1">
+          <mxGeometry x="260" y="360" width="160" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="raw-storage" value="&lt;b&gt;Blob Storage&lt;/b&gt;&#xa;Container: raw-transactions&#xa;Hot tier (7d) → Cool (90d)&#xa;→ Archive (7yr)&#xa;Owner: MLOps Engineer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF4E5;strokeColor=#FF8C00;fontColor=#D83B01;" vertex="1" parent="1">
+          <mxGeometry x="460" y="360" width="180" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="arrow-hub-to-feature" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0078D4;strokeWidth=2;" edge="1" parent="1" source="event-hubs" target="feature-pipeline">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="350" y="280" />
+              <mxPoint x="340" y="280" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="label-hub-to-feature" value="Event Hubs Capture&#xa;Avro → Blob" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow-hub-to-feature">
+          <mxGeometry x="-0.3" y="2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="arrow-feature-to-store" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0078D4;strokeWidth=2;" edge="1" parent="1" source="feature-pipeline" target="feature-store">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="arrow-feature-to-raw" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0078D4;strokeWidth=2;" edge="1" parent="1" source="feature-pipeline" target="raw-storage">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ==================== TRAINING LAYER ==================== -->
+        <mxCell id="layer-train-label" value="&lt;b&gt;3. TRAINING &amp; EXPERIMENT TRACKING&lt;/b&gt;&#xa;Owner: Data Scientist&#xa;Compute: Standard_DS3_v2 × 4 nodes" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#107C10;" vertex="1" parent="1">
+          <mxGeometry x="700" y="120" width="260" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="aml-compute" value="&lt;b&gt;Azure ML Compute Cluster&lt;/b&gt;&#xa;fraud-train-cluster&#xa;Standard_DS3_v2&#xa;Min: 0 | Max: 8 nodes&#xa;Low-priority: enabled" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DFF6DD;strokeColor=#107C10;fontColor=#107C10;" vertex="1" parent="1">
+          <mxGeometry x="700" y="180" width="180" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="mlflow-tracking" value="&lt;b&gt;MLflow Tracking&lt;/b&gt;&#xa;(Azure ML Workspace)&#xa;Experiment: fraud-detection-*&#xa;Artifact Store: Blob&#xa;Retention: 90d active / 2yr archive" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DFF6DD;strokeColor=#107C10;fontColor=#107C10;" vertex="1" parent="1">
+          <mxGeometry x="920" y="180" width="180" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="model-registry" value="&lt;b&gt;MLflow Model Registry&lt;/b&gt;&#xa;(Azure ML Workspace)&#xa;Staging → Production&#xa;Tag: eval_passed=true&#xa;Owner: Data Scientist" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DFF6DD;strokeColor=#107C10;fontColor=#107C10;" vertex="1" parent="1">
+          <mxGeometry x="1140" y="180" width="180" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="arrow-train-to-mlflow" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#107C10;strokeWidth=2;" edge="1" parent="1" source="aml-compute" target="mlflow-tracking">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="label-train-to-mlflow" value="Metrics, Params,&#xa;Artifacts, SHAP" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow-train-to-mlflow">
+          <mxGeometry x="-0.3" y="2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="arrow-mlflow-to-registry" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#107C10;strokeWidth=2;" edge="1" parent="1" source="mlflow-tracking" target="model-registry">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="label-mlflow-to-registry" value="Promote if&#xa;AUC ≥ 0.94&#xa;&amp; F1 ≥ 0.86" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow-mlflow-to-registry">
+          <mxGeometry x="-0.3" y="2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Arrow from Feature Store to Training -->
+        <mxCell id="arrow-feature-to-train" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0078D4;strokeWidth=2;dashed=1;" edge="1" parent="1" source="feature-store" target="aml-compute">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="120" y="340" />
+              <mxPoint x="790" y="340" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="label-feature-to-train" value="Training data&#xa;(hourly batch)" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow-feature-to-train">
+          <mxGeometry x="-0.3" y="2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ==================== CI/CD LAYER ==================== -->
+        <mxCell id="layer-cicd-label" value="&lt;b&gt;4. CI/CD AUTOMATION&lt;/b&gt;&#xa;Owner: MLOps Engineer&#xa;GitHub Actions | 6-stage pipeline" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#5C2D91;" vertex="1" parent="1">
+          <mxGeometry x="700" y="320" width="240" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="github-repo" value="&lt;b&gt;GitHub Repository&lt;/b&gt;&#xa;fraudshield-mlops&#xa;Branch protection: main&#xa;Required reviews: 1&#xa;Code owners: enabled" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E6E0EC;strokeColor=#5C2D91;fontColor=#5C2D91;" vertex="1" parent="1">
+          <mxGeometry x="700" y="380" width="160" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="github-actions" value="&lt;b&gt;GitHub Actions&lt;/b&gt;&#xa;Workflows:&#xa;• test → build → validate&#xa;• promote → deploy → rollback&#xa;Self-hosted runner: Azure VM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E6E0EC;strokeColor=#5C2D91;fontColor=#5C2D91;" vertex="1" parent="1">
+          <mxGeometry x="900" y="380" width="180" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="arrow-repo-to-actions" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#5C2D91;strokeWidth=2;" edge="1" parent="1" source="github-repo" target="github-actions">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="arrow-actions-to-registry" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#5C2D91;strokeWidth=2;" edge="1" parent="1" source="github-actions" target="model-registry">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="990" y="340" />
+              <mxPoint x="1230" y="340" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="label-actions-to-registry" value="Pull model,&#xa;validate,&#xa;deploy" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow-actions-to-registry">
+          <mxGeometry x="-0.3" y="2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ==================== DEPLOYMENT LAYER ==================== -->
+        <mxCell id="layer-deploy-label" value="&lt;b&gt;5. DEPLOYMENT &amp; INFERENCE&lt;/b&gt;&#xa;Owner: MLOps Engineer&#xa;Pattern: Canary / Blue-Green" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#D83B01;" vertex="1" parent="1">
+          <mxGeometry x="40" y="520" width="240" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="online-endpoint" value="&lt;b&gt;Azure ML Managed&#xa;Online Endpoint&lt;/b&gt;&#xa;fraud-scoring-prod&#xa;Auth: Key + Microsoft Entra&#xa;Auto-scale: 3–6 instances" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FDE7E9;strokeColor=#D83B01;fontColor=#D83B01;" vertex="1" parent="1">
+          <mxGeometry x="40" y="580" width="160" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="blue-deployment" value="&lt;b&gt;Blue Deployment&lt;/b&gt;&#xa;(Current Prod)&#xa;v2.3 | 100% traffic&#xa;Instances: 3&#xa;p99: 95ms" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FDE7E9;strokeColor=#D83B01;fontColor=#D83B01;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="240" y="560" width="140" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="green-deployment" value="&lt;b&gt;Green Deployment&lt;/b&gt;&#xa;(Candidate)&#xa;v2.4 | 0% → 10% → 100%&#xa;Instances: 2&#xa;p99: target &lt; 120ms" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FDE7E9;strokeColor=#D83B01;fontColor=#D83B01;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="240" y="660" width="140" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="arrow-endpoint-to-blue" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#D83B01;strokeWidth=2;" edge="1" parent="1" source="online-endpoint" target="blue-deployment">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="label-endpoint-to-blue" value="100%&#xa;traffic" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow-endpoint-to-blue">
+          <mxGeometry x="-0.3" y="2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="arrow-endpoint-to-green" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#D83B01;strokeWidth=2;dashed=1;" edge="1" parent="1" source="online-endpoint" target="green-deployment">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="label-endpoint-to-green" value="Canary&#xa;0%→10%" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow-endpoint-to-green">
+          <mxGeometry x="-0.3" y="2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Arrow from CI/CD to Endpoint -->
+        <mxCell id="arrow-cicd-to-endpoint" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#5C2D91;strokeWidth=2;" edge="1" parent="1" source="github-actions" target="online-endpoint">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="990" y="520" />
+              <mxPoint x="120" y="520" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="label-cicd-to-endpoint" value="Deploy / Update&#xa;Traffic split&#xa;Rollback trigger" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow-cicd-to-endpoint">
+          <mxGeometry x="-0.3" y="2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Arrow from Feature Store to Endpoint -->
+        <mxCell id="arrow-feature-to-endpoint" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0078D4;strokeWidth=2;" edge="1" parent="1" source="feature-store" target="online-endpoint">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="120" y="500" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="label-feature-to-endpoint" value="Feature vector&#xa;per txn" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow-feature-to-endpoint">
+          <mxGeometry x="-0.3" y="2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Arrow from Event Hubs to Endpoint (real-time scoring path) -->
+        <mxCell id="arrow-hub-to-endpoint" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0078D4;strokeWidth=2;" edge="1" parent="1" source="event-hubs" target="online-endpoint">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="350" y="280" />
+              <mxPoint x="120" y="280" />
+              <mxPoint x="120" y="500" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="label-hub-to-endpoint" value="Real-time&#xa;scoring path&#xa;(via Stream Analytics)" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow-hub-to-endpoint">
+          <mxGeometry x="-0.3" y="2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ==================== TELEMETRY & MONITORING LAYER ==================== -->
+        <mxCell id="layer-telemetry-label" value="&lt;b&gt;6. TELEMETRY &amp; DRIFT MONITORING&lt;/b&gt;&#xa;Owner: MLOps Engineer&#xa;Real-time: Azure Stream Analytics | 6 SU" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#0078D4;" vertex="1" parent="1">
+          <mxGeometry x="480" y="520" width="280" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="stream-analytics" value="&lt;b&gt;Azure Stream Analytics&lt;/b&gt;&#xa;Job: fraud-telemetry-job&#xa;6 Streaming Units (SU)&#xa;Window: Tumbling 5-min&#xa;Output: 3 destinations" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1F0FF;strokeColor=#0078D4;fontColor=#0078D4;" vertex="1" parent="1">
+          <mxGeometry x="480" y="580" width="180" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="cosmos-db" value="&lt;b&gt;Azure Cosmos DB&lt;/b&gt;&#xa;(Telemetry Store)&#xa;All scored txns&#xa;TTL: 90d hot | 2yr archive&#xa;Partition: transactionId" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1F0FF;strokeColor=#0078D4;fontColor=#0078D4;" vertex="1" parent="1">
+          <mxGeometry x="700" y="580" width="160" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="alert-queue" value="&lt;b&gt;Service Bus Queue&lt;/b&gt;&#xa;(Alert Channel)&#xa;High-risk txns&#xa;fraudScore &gt; 0.85&#xa;TTL: 7d" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1F0FF;strokeColor=#0078D4;fontColor=#0078D4;" vertex="1" parent="1">
+          <mxGeometry x="700" y="700" width="160" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="monitor-workspace" value="&lt;b&gt;Azure Monitor /&#xa;Log Analytics&lt;/b&gt;&#xa;Metrics, Logs, Alerts&#xa;Retention: 90d workspace&#xa;→ Archive 2yr" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1F0FF;strokeColor=#0078D4;fontColor=#0078D4;" vertex="1" parent="1">
+          <mxGeometry x="900" y="580" width="160" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="arrow-endpoint-to-sa" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0078D4;strokeWidth=2;" edge="1" parent="1" source="online-endpoint" target="stream-analytics">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="200" y="630" />
+              <mxPoint x="480" y="630" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="label-endpoint-to-sa" value="Prediction log&#xa;+ features&#xa;+ latency&#xa;+ SHAP" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow-endpoint-to-sa">
+          <mxGeometry x="-0.3" y="2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="arrow-sa-to-cosmos" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0078D4;strokeWidth=2;" edge="1" parent="1" source="stream-analytics" target="cosmos-db">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="label-sa-to-cosmos" value="All records" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow-sa-to-cosmos">
+          <mxGeometry x="-0.3" y="2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="arrow-sa-to-alert" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#D83B01;strokeWidth=2;" edge="1" parent="1" source="stream-analytics" target="alert-queue">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="570" y="740" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="label-sa-to-alert" value="fraudScore &gt; 0.85&#xa;OR velocity anomaly" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow-sa-to-alert">
+          <mxGeometry x="-0.3" y="2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="arrow-sa-to-monitor" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0078D4;strokeWidth=2;" edge="1" parent="1" source="stream-analytics" target="monitor-workspace">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="label-sa-to-monitor" value="Aggregated&#xa;metrics&#xa;(5-min windows)" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow-sa-to-monitor">
+          <mxGeometry x="-0.3" y="2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ==================== STORAGE LAYER ==================== -->
+        <mxCell id="layer-storage-label" value="&lt;b&gt;7. STORAGE TIERING &amp; LIFECYCLE&lt;/b&gt;&#xa;Owner: MLOps Engineer&#xa;GPv2 | LRS | Soft Delete: 7d" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#FF8C00;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="520" width="260" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="blob-storage" value="&lt;b&gt;Azure Blob Storage&lt;/b&gt;&#xa;fraudmlstore (GPv2)&#xa;Private Endpoint | TLS 1.3&#xa;Soft Delete: 7d | versioning&#xa;Owner: MLOps Engineer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF4E5;strokeColor=#FF8C00;fontColor=#D83B01;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="580" width="180" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="storage-raw" value="raw-transactions&#xa;Hot: 7d → Cool: 90d&#xa;→ Archive: 7yr&#xa;~2.1 TB/mo" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF4E5;strokeColor=#FF8C00;fontColor=#D83B01;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="700" width="120" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="storage-features" value="features&#xa;Hot: 30d → Cool: 180d&#xa;→ Archive: 2yr&#xa;~180 GB/mo" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF4E5;strokeColor=#FF8C00;fontColor=#D83B01;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="700" width="120" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="storage-models" value="models&#xa;Hot: 90d → Cool: 2yr&#xa;→ Archive: 7yr&#xa;~45 MB/artifact" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF4E5;strokeColor=#FF8C00;fontColor=#D83B01;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1380" y="700" width="120" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="arrow-blob-to-raw" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#FF8C00;strokeWidth=1;" edge="1" parent="1" source="blob-storage" target="storage-raw">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="arrow-blob-to-features" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#FF8C00;strokeWidth=1;" edge="1" parent="1" source="blob-storage" target="storage-features">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="arrow-blob-to-models" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#FF8C00;strokeWidth=1;" edge="1" parent="1" source="blob-storage" target="storage-models">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Arrow from CI/CD to Blob Storage -->
+        <mxCell id="arrow-cicd-to-blob" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#5C2D91;strokeWidth=1;dashed=1;" edge="1" parent="1" source="github-actions" target="blob-storage">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1080" y="430" />
+              <mxPoint x="1190" y="430" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="label-cicd-to-blob" value="Store artifacts,&#xa;logs, configs" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow-cicd-to-blob">
+          <mxGeometry x="-0.3" y="2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ==================== CONTROL PLANE: KEY VAULT ==================== -->
+        <mxCell id="key-vault" value="&lt;b&gt;Azure Key Vault&lt;/b&gt;&#xa;fraud-ml-kv&#xa;• Model encryption keys&#xa;• Event Hubs conn strings&#xa;• ACR credentials&#xa;• CI/CD service principal&#xa;Owner: MLOps Engineer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F0F0F0;strokeColor=#605E5C;fontColor=#323130;" vertex="1" parent="1">
+          <mxGeometry x="1300" y="180" width="180" height="120" as="geometry" />
+        </mxCell>
+
+        <!-- Control arrows from Key Vault -->
+        <mxCell id="arrow-kv-to-endpoint" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#605E5C;strokeWidth=1;dashed=1;" edge="1" parent="1" source="key-vault" target="online-endpoint">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1390" y="340" />
+              <mxPoint x="120" y="340" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="label-kv-to-endpoint" value="Secrets injection&#xa;(Managed Identity)" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=9;fontColor=#605E5C;" vertex="1" connectable="0" parent="arrow-kv-to-endpoint">
+          <mxGeometry x="-0.3" y="2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="arrow-kv-to-actions" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#605E5C;strokeWidth=1;dashed=1;" edge="1" parent="1" source="key-vault" target="github-actions">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1300" y="240" />
+              <mxPoint x="1080" y="240" />
+              <mxPoint x="1080" y="380" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="label-kv-to-actions" value="Service Principal&#xa;credentials" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=9;fontColor=#605E5C;" vertex="1" connectable="0" parent="arrow-kv-to-actions">
+          <mxGeometry x="-0.3" y="2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ==================== DRIFT DETECTION FEEDBACK LOOP ==================== -->
+        <mxCell id="drift-detection" value="&lt;b&gt;Drift Detection&lt;/b&gt;&#xa;Service (Azure Function)&#xa;• PSI / KL / KS tests&#xa;• 5-min window aggregation&#xa;• Threshold: PSI &gt; 0.25&#xa;Owner: MLOps Engineer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FDE7E9;strokeColor=#D83B01;fontColor=#D83B01;" vertex="1" parent="1">
+          <mxGeometry x="900" y="720" width="180" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="arrow-cosmos-to-drift" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#D83B01;strokeWidth=2;" edge="1" parent="1" source="cosmos-db" target="drift-detection">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="780" y="770" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="label-cosmos-to-drift" value="Feature &amp; prediction&#xa;distributions" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow-cosmos-to-drift">
+          <mxGeometry x="-0.3" y="2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="arrow-drift-to-actions" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#D83B01;strokeWidth=2;dashed=1;" edge="1" parent="1" source="drift-detection" target="github-actions">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="990" y="700" />
+              <mxPoint x="990" y="520" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="label-drift-to-actions" value="Trigger retraining&#xa;OR pause promotion&#xa;(GitHub API)" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow-drift-to-actions">
+          <mxGeometry x="-0.3" y="2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="arrow-drift-to-monitor" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#D83B01;strokeWidth=1;dashed=1;" edge="1" parent="1" source="drift-detection" target="monitor-workspace">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="label-drift-to-monitor" value="Alert logs&#xa;(Action Group)" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="arrow-drift-to-monitor">
+          <mxGeometry x="-0.3" y="2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ==================== FOOTER NOTES ==================== -->
+        <mxCell id="footer" value="&lt;b&gt;Performance Targets:&lt;/b&gt; Peak 100K txn/hr (27.8 txns/sec) | p99 Latency ≤ 120ms | Availability 99.9% | Auto-rollback &lt; 5 min | Drift alert &lt; 4 hr&#xa;&lt;b&gt;Interfaces:&lt;/b&gt; REST (scoring) | gRPC (internal) | Event Hubs (ingestion) | Blob Storage (artifacts) | Cosmos DB (telemetry) | Service Bus (alerts)&#xa;&lt;b&gt;Security:&lt;/b&gt; TLS 1.3 | Private Endpoints | Managed Identity | Key Vault | NSG rules | PCI-DSS / SOC 2 / GDPR compliant" style="text;html=1;strokeColor=none;fillColor=#F3F2F1;align=left;verticalAlign=top;whiteSpace=wrap;rounded=1;fontSize=10;fontColor=#323130;" vertex="1" parent="1">
+          <mxGeometry x="40" y="840" width="1520" height="60" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -1,0 +1,209 @@
+================================================================================
+SCENARIO DATA PACKAGE
+Fintech Fraud Detection Model — MLOps Pipeline Design Project
+================================================================================
+Document Version: 1.0
+Last Updated: 2026-07-30
+Classification: Internal — Project Reference
+
+--------------------------------------------------------------------------------
+1. MODEL SPECIFICATIONS
+--------------------------------------------------------------------------------
+Model Name:          FraudShield-v3 (Gradient Boosting Classifier)
+Framework:           XGBoost 2.1.0 + Scikit-learn 1.5.0
+Model Type:          Binary classification (fraud / not-fraud)
+Input Features:      47 engineered features (see Feature Catalog below)
+Output:              Probability score [0.0 – 1.0] + binary decision
+
+Performance Baseline (Holdout Test Set, 30 days):
+  • AUC-ROC:         ≥ 0.94
+  • Precision@0.5:   ≥ 0.82
+  • Recall@0.5:      ≥ 0.91
+  • F1-Score:        ≥ 0.86
+  • Inference Latency (p99): ≤ 120 ms per transaction
+  • Throughput:      ≥ 28 transactions/second per endpoint instance
+
+Model Size:          ~18 MB (pickled XGBoost model + preprocessing pipeline)
+Artifact Size:       ~45 MB (model + conda env + scoring script)
+
+Feature Catalog (Top 15 by importance):
+  1. amount_log                     (numeric)
+  2. hour_of_day                    (categorical encoded)
+  3. day_of_week                    (categorical encoded)
+  4. is_weekend                     (boolean)
+  5. merchantCategory_encoded        (categorical encoded)
+  6. isOnline                        (boolean)
+  7. distance_flag                   (categorical: 0=local, 1=regional, 2=international)
+  8. avg_txn_amount_30d             (numeric, rolling window)
+  9. txn_count_24h                  (numeric, rolling window)
+ 10. unique_merchants_7d            (numeric, rolling window)
+ 11. time_since_last_txn_minutes    (numeric)
+ 12. amount_vs_avg_ratio            (numeric)
+ 13. velocity_score_1h              (numeric, engineered)
+ 14. device_risk_score              (numeric, external API derived)
+ 15. geo_anomaly_flag               (boolean, rule-based)
+
+--------------------------------------------------------------------------------
+2. TRANSACTION VOLUMES & TRAFFIC PATTERNS
+--------------------------------------------------------------------------------
+Peak Volume:         100,000 transactions/hour  (= ~27.8 txns/sec sustained)
+Average Volume:      42,000 transactions/hour   (= ~11.7 txns/sec sustained)
+Peak Hours:          09:00–12:00 UTC and 18:00–22:00 UTC
+Low-Traffic Hours:   02:00–06:00 UTC
+
+Seasonality:
+  • Black Friday / Cyber Monday: 3.5× baseline peak
+  • End-of-month (salary days):  1.8× baseline peak
+  • Holiday periods:             0.6× baseline average
+
+Transaction Size Distribution:
+  • Micro (< $10):        35%
+  • Small ($10–$100):     42%
+  • Medium ($100–$500):  18%
+  • Large ($500–$2,000):   4%
+  • Exceptional (> $2,000): 1%
+
+--------------------------------------------------------------------------------
+3. CURRENT INFRASTRUCTURE
+--------------------------------------------------------------------------------
+Cloud Platform:      Microsoft Azure
+Primary Region:      East US 2 (paired with Central US for DR)
+Secondary Region:    West Europe (compliance data residency)
+
+Existing Resources:
+  ├─ Azure Machine Learning Workspace (v2 API)
+  │   ├─ Compute Cluster: "fraud-train-cluster" (Standard_DS3_v2 × 4 nodes, min 0, max 8)
+  │   ├─ Compute Instance: "fraud-dev-01" (Standard_DS3_v2, for dev/experimentation)
+  │   └─ Managed Online Endpoint: "fraud-scoring-prod" (currently serving v2.3)
+  ├─ Azure Event Hubs Namespace: "fraud-events-ns" (Standard SKU, 16 partitions)
+  │   └─ Event Hub: "transactions" (retention: 24 hours)
+  ├─ Azure Blob Storage: "fraudmlstore" (GPv2, LRS, Hot tier default)
+  │   ├─ Container: "raw-transactions"      (landing zone)
+  │   ├─ Container: "features"              (feature store snapshots)
+  │   ├─ Container: "models"                (model artifacts)
+  │   ├─ Container: "experiments"            (MLflow artifacts)
+  │   └─ Container: "telemetry"            (monitoring data)
+  ├─ Azure Stream Analytics Job: "fraud-telemetry-job" (1 SU, basic monitoring)
+  ├─ Azure Key Vault: "fraud-ml-kv"         (secrets, model encryption keys)
+  ├─ Azure Container Registry: "fraudmlacr.azurecr.io"
+  └─ Azure Monitor / Log Analytics Workspace: "fraud-ml-logs"
+
+Networking:
+  • VNet: "fraud-ml-vnet" (10.0.0.0/16)
+  • Subnets: training (10.0.1.0/24), scoring (10.0.2.0/24), data (10.0.3.0/24)
+  • Private Endpoints enabled for Blob Storage, Key Vault, ACR
+  • NSG rules restrict inbound to corporate IP ranges + Azure services
+
+--------------------------------------------------------------------------------
+4. TEAM PROFILE
+--------------------------------------------------------------------------------
+Team Size:           2 persons (MLOps Engineer + Data Scientist)
+
+Role: MLOps Engineer (You)
+  • Responsibilities: Pipeline architecture, CI/CD, deployment, monitoring, storage,
+                      incident response, infrastructure as code
+  • Azure Certifications: AZ-104, AZ-305, DP-100
+  • Experience: 3 years Azure, 2 years MLOps, proficient in Terraform & GitHub Actions
+
+Role: Data Scientist (Teammate)
+  • Responsibilities: Model research, feature engineering, training experiments,
+                      performance analysis, threshold tuning, business metric alignment
+  • Experience: 4 years ML, 2 years fintech domain, proficient in Python/XGBoost
+
+Constraints from Team Size:
+  • No dedicated SRE or DevOps — MLOps Engineer owns infrastructure
+  • No 24/7 on-call rotation; on-call is shared with 4-hour response SLA
+  • All operational procedures must be executable by either team member
+  • Automation is mandatory; manual steps must be minimal and documented
+
+--------------------------------------------------------------------------------
+5. COMPLIANCE NEEDS
+--------------------------------------------------------------------------------
+Regulatory Frameworks:
+  • PCI-DSS v4.0 (Payment Card Industry Data Security Standard)
+  • SOC 2 Type II (Security, Availability, Confidentiality)
+  • GDPR (EU customer data residency in West Europe)
+  • FFIEC Guidance on Authentication (fraud detection model accountability)
+
+Data Handling Requirements:
+  • Raw card numbers (PAN) must NEVER enter the ML pipeline
+  • Card hashes (SHA-256) are acceptable identifiers
+  • PII fields (customer names, addresses) must be tokenized before storage
+  • Model predictions and feature vectors must be retained for 7 years (audit)
+  • All model decisions must be explainable (SHAP values logged per prediction)
+  • Data encryption at rest (AES-256) and in transit (TLS 1.3)
+
+Audit & Governance:
+  • Every model version must have lineage: data source → training run → deployment
+  • All CI/CD pipeline runs must be logged and retained for 2 years
+  • Drift detection outcomes must be logged with timestamps and action taken
+  • Model rollback decisions must have approval traceability
+
+--------------------------------------------------------------------------------
+6. INCIDENT HISTORY
+--------------------------------------------------------------------------------
+Incident #1 — "Silent Drift" (2025-11-14)
+  • Symptom: Fraud detection rate dropped from 2.3% to 0.8% over 6 days unnoticed
+  • Root Cause: Merchant category distribution shifted due to new partner onboarding;
+                model was not retrained on new category encodings
+  • Impact: $340K in undetected fraudulent transactions
+  • Lesson: Need automated drift detection with alerting within 4 hours
+
+Incident #2 — "Deployment Rollback Failure" (2026-01-08)
+  • Symptom: v2.4 deployment caused latency spike to 890 ms (p99)
+  • Root Cause: Scoring script bug in feature preprocessing; rollback to v2.3 took
+                23 minutes due to manual steps and missing rollback automation
+  • Impact: 12-minute service degradation, 4,200 transactions delayed
+  • Lesson: CI/CD must include automated rollback with < 5 min recovery time
+
+Incident #3 — "Storage Cost Spike" (2026-03-22)
+  • Symptom: Blob Storage bill increased 340% month-over-month
+  • Root Cause: Experiment artifacts accumulated unchecked; no lifecycle policy
+  • Impact: $18K unbudgeted spend; 4.2 TB of redundant data
+  • Lesson: Automated lifecycle policies with retention rules are mandatory
+
+Incident #4 — "Feature Store Latency" (2026-05-03)
+  • Symptom: Feature retrieval latency spiked to 450 ms during peak hours
+  • Root Cause: Feature store (custom Redis) was single-node, no auto-scaling
+  • Impact: 8% of transactions exceeded 200 ms SLA
+  • Lesson: Feature store must be scalable and decoupled from scoring latency
+
+--------------------------------------------------------------------------------
+7. ASSUMPTIONS & CONSTRAINTS SUMMARY (M0 Reference)
+--------------------------------------------------------------------------------
+Explicit Constraints (from Leadership / Scenario):
+  [C1] Peak throughput: 100K transactions/hour
+  [C2] Latency target: p99 ≤ 120 ms per transaction
+  [C3] Availability target: 99.9% uptime (max 8.76 hrs downtime/year)
+  [C4] Team size: 2 persons only
+  [C5] Automated CI/CD with deployment gates required before production
+  [C6] Drift detection with numeric thresholds and automated response
+  [C7] Storage cost optimization with tiering and lifecycle policies
+  [C8] All model decisions auditable and explainable (SHAP)
+  [C9] Compliance: PCI-DSS, SOC 2, GDPR, FFIEC
+  [C10] Incident response: < 5 min automated rollback, < 4 hr drift alert
+
+Assumptions (to be validated):
+  [A1] Event Hubs can scale to 100K txn/hr with current 16 partitions (validated: yes, 
+       Standard SKU supports up to 1 MB/s per partition = 16 MB/s total >> required)
+  [A2] Azure ML Managed Online Endpoint can auto-scale to handle peak (validated: yes,
+       with 3–6 instances of Standard_DS3_v2)
+  [A3] Feature store will be migrated to Azure Managed Redis or Feast on Azure
+  [A4] Budget for Azure Stream Analytics: up to 6 Streaming Units (SU) acceptable
+  [A5] Model retraining cycle: weekly batch retraining with daily incremental updates
+
+--------------------------------------------------------------------------------
+8. BUSINESS COST MODEL (for Threshold Justification)
+--------------------------------------------------------------------------------
+Cost per False Negative (missed fraud):    $127  (average fraud transaction value)
+Cost per False Positive (blocked legit):   $8    (customer service + friction cost)
+Cost per hour of service downtime:         $45,000 (revenue loss + SLA penalties)
+Cost per hour of delayed scoring (>200ms): $3,200 (queue buildup + manual review)
+
+Break-even analysis for drift:
+  • If drift causes 1% drop in recall: expected loss = $1,270/hour
+  • Therefore, drift detection + retraining cost must be < $1,270/hour to be ROI-positive
+
+================================================================================
+END OF SCENARIO DATA PACKAGE
+================================================================================

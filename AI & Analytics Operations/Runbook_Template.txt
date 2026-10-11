@@ -1,0 +1,468 @@
+================================================================================
+OPERATIONAL RUNBOOK
+FraudShield MLOps Pipeline — Two-Person Team Operations
+================================================================================
+Document Version: 1.0
+Last Updated: 2026-07-30
+Classification: Internal — Operational Reference
+Owner: MLOps Engineer (Primary) / Data Scientist (Secondary)
+
+--------------------------------------------------------------------------------
+TABLE OF CONTENTS
+--------------------------------------------------------------------------------
+  1. Daily Health Checks
+  2. Incident Triage & Severity Classification
+  3. Model Rollback Procedure
+  4. Model Retraining Procedure
+  5. New Model Onboarding
+  6. Escalation Paths
+  7. Required Logs & Metrics Reference
+  8. Production Change Checklist
+
+--------------------------------------------------------------------------------
+1. DAILY HEALTH CHECKS (15 minutes, 09:00 UTC)
+--------------------------------------------------------------------------------
+Owner: MLOps Engineer (Primary) — if unavailable, Data Scientist
+Frequency: Every business day
+Duration: 15 minutes max
+
+Step-by-Step Checklist:
+
+  □ 1.1 Check Endpoint Health
+      Command:
+        az ml online-endpoint show           --name fraud-scoring-prod           --query "{name: name, state: provisioning_state, traffic: traffic, scoring_uri: scoring_uri}"
+      Expected: state = "Succeeded", traffic = {"blue": 100} or {"green": 100}
+      If state != "Succeeded" → Go to Section 2 (Incident Triage)
+
+  □ 1.2 Check Deployment Health
+      Command:
+        az ml online-deployment list           --endpoint-name fraud-scoring-prod           --query "[].{name: name, state: provisioning_state, instance_count: instance_count}"
+      Expected: All deployments state = "Succeeded"
+      If any deployment state != "Succeeded" → Go to Section 2
+
+  □ 1.3 Check Azure Monitor Dashboard
+      URL: https://portal.azure.com/#@/resource/subscriptions/<sub-id>/resourceGroups/fraud-ml-rg/providers/Microsoft.MachineLearningServices/workspaces/fraud-ml-workspace/monitoring
+      Metrics to verify:
+        • Request latency p99 < 120 ms  → 🟢 Healthy / 🟡 Warning / 🔴 Critical
+        • Error rate < 0.1%             → 🟢 Healthy / 🟡 Warning / 🔴 Critical
+        • Requests per minute ≥ 450     → 🟢 Healthy / 🟡 Warning / 🔴 Critical
+      If any metric in 🔴 Critical → Go to Section 2
+
+  □ 1.4 Check Drift Detection Dashboard
+      URL: https://portal.azure.com/#view/Microsoft_Azure_Monitoring/LogsBlade/...
+      Query (last 24 hours):
+        StreamAnalyticsJobLogs
+        | where TimeGenerated > ago(24h)
+        | where Message contains "DRIFT_ALERT"
+        | summarize count() by Severity
+      Expected: 0 High or Critical alerts in last 24h
+      If count > 0 → Go to Section 2
+
+  □ 1.5 Check Storage Capacity
+      Command:
+        az storage account show-usage           --account-name fraudmlstore           --query "{usedBytes: value[?name=='StorageUsed'].currentValue|[0], limitBytes: value[?name=='StorageUsed'].limit|[0]}"
+      Expected: Used < 80% of limit
+      If used > 85% → Create Jira ticket for storage cleanup
+
+  □ 1.6 Check CI/CD Pipeline Status
+      URL: https://github.com/fintech-corp/fraudshield-mlops/actions
+      Expected: All recent runs on main branch = ✅ Success
+      If any failed run in last 24h → Investigate and create Jira ticket
+
+  □ 1.7 Log Daily Health Check
+      Update: https://wiki.fintech-corp.com/fraudshield-daily-health
+      Template:
+        Date: YYYY-MM-DD
+        Checked by: <name>
+        Endpoint state: <state>
+        p99 latency: <value> ms
+        Error rate: <value> %
+        Drift alerts (24h): <count>
+        Storage used: <value> %
+        CI/CD status: <status>
+        Notes: <any anomalies or actions taken>
+
+--------------------------------------------------------------------------------
+2. INCIDENT TRIAGE & SEVERITY CLASSIFICATION
+--------------------------------------------------------------------------------
+Owner: MLOps Engineer (Primary) / Data Scientist (Backup)
+Response Time: < 15 minutes for Critical, < 1 hour for High
+
+2.1 Severity Classification
+─────────────────────────────────────────────────────────────────────────
+
+  🔴 CRITICAL (P1) — Immediate action required
+    Triggers:
+      • Endpoint state = "Failed" or "Updating" for > 5 minutes
+      • p99 latency > 300 ms for > 5 minutes
+      • Error rate > 0.5% for > 5 minutes
+      • Zero throughput (0 requests/min) for > 2 minutes
+      • Auto-rollback triggered by monitoring
+    Response:
+      1. Page both team members immediately (PagerDuty)
+      2. Execute Section 3 (Model Rollback) if deployment-related
+      3. If infrastructure-related, check Azure Service Health Dashboard
+      4. Post incident summary to #incidents Slack channel
+      5. Create PagerDuty incident for tracking
+
+  🟠 HIGH (P2) — Action required within 1 hour
+    Triggers:
+      • p99 latency > 200 ms for > 15 minutes
+      • Error rate > 0.1% for > 15 minutes
+      • Drift alert: PSI ≥ 0.25 OR KL ≥ 0.15 OR KS D ≥ 0.15
+      • Throughput per instance < 10 txns/sec
+      • CI/CD pipeline failed on main branch
+    Response:
+      1. Notify team via Slack #ml-alerts
+      2. If drift-related → Execute Section 4 (Model Retraining)
+      3. If performance-related → Scale endpoint instances +1
+      4. If CI/CD failed → Investigate logs, fix, re-run
+      5. Create Jira ticket with label "P2-mlops"
+
+  🟡 MEDIUM (P3) — Action required within 4 hours
+    Triggers:
+      • p99 latency 120–200 ms for > 30 minutes
+      • Error rate 0.05–0.1% for > 30 minutes
+      • Drift alert: PSI 0.20–0.25 OR KL 0.10–0.15 OR KS D 0.10–0.15
+      • Storage usage > 85%
+      • Feature store latency > 50 ms p99
+    Response:
+      1. Log in daily health check
+      2. Schedule investigation in next standup
+      3. Create Jira ticket with label "P3-mlops"
+
+  🟢 LOW (P4) — Next business day
+    Triggers:
+      • Any metric in warning range but not sustained
+      • Non-urgent CI/CD warnings
+      • Documentation gaps
+    Response:
+      1. Log in daily health check
+      2. Add to backlog for next sprint
+
+2.2 Triage Decision Tree
+─────────────────────────────────────────────────────────────────────────
+
+                    Alert Received
+                           │
+                           ▼
+              ┌────────────────────────────┐
+              │ Is endpoint responding?      │
+              │ (scoring_uri returns 200)  │
+              └────────────────────────────┘
+                     │              │
+                    No            Yes
+                     │              │
+                     ▼              ▼
+        ┌─────────────────┐  ┌─────────────────┐
+        │ CRITICAL (P1)   │  │ Check latency:  │
+        │ → Section 3       │  │ p99 > 300ms?    │
+        │ (Rollback)        │  └─────────────────┘
+        └─────────────────┘         │
+                               Yes / No
+                                 │
+                    ┌────────────┴────────────┐
+                    ▼                         ▼
+              p99 > 300ms                 p99 < 300ms
+                 for > 5min                   │
+                    │              ┌──────────┴──────────┐
+                    ▼              ▼                   ▼
+            ┌─────────────┐   Check error rate    Check drift alerts
+            │ CRITICAL    │         │                   │
+            │ → Section 3 │    > 0.5%?            PSI ≥ 0.25?
+            └─────────────┘    │                   │
+                          Yes / No             Yes / No
+                            │                   │
+                    ┌───────┴───────┐    ┌────┴────┐
+                    ▼               ▼    ▼         ▼
+                HIGH (P2)      MEDIUM   HIGH      MEDIUM
+                Scale out      Monitor  → Sec 4   Monitor
+                + investigate  + Jira   Retrain   + Jira
+
+--------------------------------------------------------------------------------
+3. MODEL ROLLBACK PROCEDURE
+--------------------------------------------------------------------------------
+Owner: MLOps Engineer (Primary) / Data Scientist (if MLOps unavailable)
+Target Recovery Time: < 5 minutes (automated) / < 15 minutes (manual)
+
+3.1 Automated Rollback (Preferred)
+─────────────────────────────────────────────────────────────────────────
+Trigger: Auto-rollback workflow triggered by monitoring alert
+
+  Step 1: Confirm auto-rollback initiated
+    Check: GitHub Actions → ml-pipeline-rollback workflow
+    URL: https://github.com/fintech-corp/fraudshield-mlops/actions/workflows/ml-pipeline-rollback.yml
+    Expected: Workflow status = "In Progress" or "Completed"
+
+  Step 2: Monitor rollback progress
+    Command:
+      az ml online-endpoint show         --name fraud-scoring-prod         --query "{traffic: traffic, state: provisioning_state}"
+    Expected progression:
+      T+0min:  traffic = {"blue-rollback": 100, "green": 0}
+      T+1min:  state = "Succeeded"
+      T+2min:  Endpoint responding (HTTP 200)
+
+  Step 3: Verify rollback health
+    Command:
+      curl -X POST https://fraud-scoring-prod.eastus2.inference.ml.azure.com/score         -H "Authorization: Bearer $(az account get-access-token --resource https://ml.azure.com --query accessToken -o tsv)"         -H "Content-Type: application/json"         -d '{"data": [{"amount_log": 5.2, "hour_of_day": 14, "day_of_week": 3, "is_weekend": 0, "merchantCategory_encoded": 12, "isOnline": 1, "distance_flag": 2, "avg_txn_amount_30d": 120.5, "txn_count_24h": 3, "unique_merchants_7d": 2, "time_since_last_txn_minutes": 45, "amount_vs_avg_ratio": 1.2}]}'
+    Expected: HTTP 200, response time < 120 ms, fraudScore in [0,1]
+
+  Step 4: Post-rollback actions
+    □ Update daily health check log
+    □ Notify team via Slack #incidents
+    □ Review rollback log artifact: https://github.com/fintech-corp/fraudshield-mlops/actions/runs/<run-id>
+    □ Schedule post-mortem within 24 hours
+    □ Create Jira ticket: "Post-mortem: Rollback <date>"
+
+3.2 Manual Rollback (Emergency — if automation fails)
+─────────────────────────────────────────────────────────────────────────
+Prerequisite: Azure CLI installed, logged in, `az extension add -n ml`
+
+  Step 1: Identify target version
+    Command:
+      az ml model list --name fraud-detection-xgboost         --query "[?tags.stage=='Production'] | sort_by(@, &version) | [-2].{version: version, tags: tags}"
+    Note the version number (e.g., "3")
+
+  Step 2: Create emergency rollback deployment
+    Command:
+      cat > /tmp/rollback-deployment.yml << 'EOF'
+      $schema: https://azuremlschemas.azureedge.net/latest/managedOnlineDeployment.schema.json
+      name: blue-rollback
+      endpoint_name: fraud-scoring-prod
+      model: azureml:fraud-detection-xgboost:<VERSION>
+      instance_type: Standard_DS3_v2
+      instance_count: 3
+      request_settings:
+        request_timeout_ms: 5000
+        max_concurrent_requests_per_instance: 10
+      EOF
+
+      az ml online-deployment create         --file /tmp/rollback-deployment.yml         --resource-group fraud-ml-rg         --workspace-name fraud-ml-workspace
+
+  Step 3: Shift traffic immediately
+    Command:
+      az ml online-endpoint update         --name fraud-scoring-prod         --traffic "blue-rollback=100 green=0"         --resource-group fraud-ml-rg         --workspace-name fraud-ml-workspace
+
+  Step 4: Verify (same as Step 3 in Automated Rollback)
+
+  Step 5: Clean up failed deployment
+    Command:
+      az ml online-deployment delete         --name green         --endpoint-name fraud-scoring-prod         --yes         --resource-group fraud-ml-rg         --workspace-name fraud-ml-workspace
+
+  Step 6: Document
+    □ Log in daily health check
+    □ Create incident ticket in Jira
+    □ Notify team via Slack
+    □ Schedule post-mortem
+
+--------------------------------------------------------------------------------
+4. MODEL RETRAINING PROCEDURE
+--------------------------------------------------------------------------------
+Owner: Data Scientist (Primary) / MLOps Engineer (support)
+Trigger: Drift alert (PSI ≥ 0.25 or scheduled weekly retraining)
+Duration: 2–4 hours (including validation)
+
+4.1 Pre-Training Checklist
+─────────────────────────────────────────────────────────────────────────
+  □ Confirm drift alert is valid (not false positive)
+    Check: Azure Monitor → Stream Analytics logs → verify PSI calculation
+    Check: Feature distributions in Cosmos DB vs. training baseline
+  □ Verify training data availability
+    Command: az ml data show --name fraud-training-data --version latest
+    Expected: Data asset exists, version > current training version
+  □ Check compute cluster capacity
+    Command: az ml compute show --name fraud-train-cluster
+    Expected: Idle nodes available or cluster can scale up
+  □ Notify team: "Starting retraining for drift alert <alert-id>"
+
+4.2 Trigger Retraining Pipeline
+─────────────────────────────────────────────────────────────────────────
+  Option A: Via GitHub Actions (Recommended)
+    1. Go to: https://github.com/fintech-corp/fraudshield-mlops/actions
+    2. Click "ML Pipeline — Build" → "Run workflow"
+    3. Select branch: main
+    4. Click "Run workflow"
+    5. Monitor progress in GitHub Actions UI
+
+  Option B: Via Azure ML CLI (if GitHub Actions unavailable)
+    Command:
+      az ml job create         --file pipelines/train-fraud-model.yml         --set inputs.training_data.path=azureml:fraud-training-data:latest         --set inputs.model_name=fraud-detection-xgboost         --set inputs.seed=42         --set inputs.drift_alert_id=<ALERT_ID>         --resource-group fraud-ml-rg         --workspace-name fraud-ml-workspace
+
+4.3 Post-Training Validation
+─────────────────────────────────────────────────────────────────────────
+  □ Wait for training completion (monitor via Azure ML Studio or CLI)
+  □ Verify MLflow metrics meet thresholds:
+      AUC-ROC ≥ 0.94 ✅ / ❌
+      F1-Score ≥ 0.86 ✅ / ❌
+      p99 Latency ≤ 120 ms ✅ / ❌
+      FPR ≤ 0.02 ✅ / ❌
+      SHAP stability ≥ 0.85 ✅ / ❌
+  □ If all gates pass → Model auto-promoted to Staging
+  □ If any gate fails → Investigate, fix, retrain
+  □ Data Scientist approves promotion to Production (manual gate)
+
+4.4 Deploy Retrained Model
+─────────────────────────────────────────────────────────────────────────
+  □ Trigger "ML Pipeline — Deploy (Canary)" via GitHub Actions
+  □ Monitor canary deployment for 30 minutes
+  □ If canary passes → Auto-promote to 100%
+  □ If canary fails → Auto-rollback to previous production version
+  □ Update model documentation with new version details
+
+--------------------------------------------------------------------------------
+5. NEW MODEL ONBOARDING
+--------------------------------------------------------------------------------
+Owner: Data Scientist (Primary) / MLOps Engineer (infrastructure)
+Use Case: New model architecture, new feature set, or new business requirement
+
+5.1 Pre-Onboarding Checklist
+─────────────────────────────────────────────────────────────────────────
+  □ Model architecture approved by Data Scientist
+  □ Feature set documented and schema validated
+  □ Training data versioned in Azure ML Data Assets
+  □ Experiment tracking configured (MLflow experiment name follows convention)
+  □ CI/CD pipeline updated to include new model path
+  □ Security review completed (no new external dependencies without approval)
+  □ Performance baseline established (holdout test set)
+
+5.2 Onboarding Steps
+─────────────────────────────────────────────────────────────────────────
+  Step 1: Create new MLflow experiment
+    Command:
+      mlflow.set_experiment("fraud-detection-<new-architecture>-v1")
+
+  Step 2: Run training pipeline (same as Section 4.2)
+
+  Step 3: Register model with new name
+    Command:
+      az ml model create         --name fraud-detection-<new-architecture>         --version 1         --path ./model         --type mlflow_model         --tags "stage=staging" "eval_passed=true"
+
+  Step 4: Update CI/CD workflows
+    □ Add new model name to GitHub Actions variables
+    □ Update deployment YAML to reference new model
+    □ Update monitoring queries to include new model metrics
+
+  Step 5: Canary deployment (same as Section 4.4)
+
+  Step 6: Update runbook
+    □ Add new model to daily health check commands
+    □ Update rollback procedures if model name changed
+    □ Document new model-specific thresholds
+
+--------------------------------------------------------------------------------
+6. ESCALATION PATHS
+--------------------------------------------------------------------------------
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │                         ESCALATION HIERARCHY                          │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │                                                                         │
+  │   Level 1: Team Members (2-person team)                                 │
+  │   ─────────────────────────────────────                                 │
+  │   • MLOps Engineer (Primary on-call)                                    │
+  │   • Data Scientist (Secondary on-call)                                  │
+  │   Response SLA: Critical < 15 min, High < 1 hr, Medium < 4 hr         │
+  │   Contact: PagerDuty → auto-pages both for Critical                   │
+  │                                                                         │
+  │   Level 2: Engineering Manager                                          │
+  │   ─────────────────────────────                                         │
+  │   • Contact if: Both team members unreachable for > 30 min (Critical)  │
+  │   • Contact if: Incident requires cross-team coordination               │
+  │   • Contact if: Potential data breach or compliance violation           │
+  │   Response SLA: < 1 hour                                                │
+  │   Contact: engineering-manager@fintech-corp.com                       │
+  │                                                                         │
+  │   Level 3: Azure Support + Legal + Compliance                           │
+  │   ─────────────────────────────────────────                             │
+  │   • Contact if: Azure infrastructure outage (check Azure Status first)│
+  │   • Contact if: PCI-DSS / GDPR breach suspected                         │
+  │   • Contact if: Regulatory inquiry or audit request                     │
+  │   Response SLA: Immediate for compliance issues                       │
+  │   Contact: compliance@fintech-corp.com + Azure Support ticket           │
+  │                                                                         │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+--------------------------------------------------------------------------------
+7. REQUIRED LOGS & METRICS REFERENCE
+--------------------------------------------------------------------------------
+
+7.1 Azure ML Endpoint Logs
+─────────────────────────────────────────────────────────────────────────
+  Location: Azure Monitor → Log Analytics Workspace → fraud-ml-logs
+  Query:
+    AzureDiagnostics
+    | where Category == "AmlOnlineEndpoint"
+    | where TimeGenerated > ago(1h)
+    | summarize avg(Latency), max(Latency), count() by DeploymentName, bin(TimeGenerated, 5m)
+
+7.2 Stream Analytics Job Logs
+─────────────────────────────────────────────────────────────────────────
+  Location: Azure Monitor → Log Analytics Workspace → fraud-ml-logs
+  Query:
+    StreamAnalyticsJobLogs
+    | where TimeGenerated > ago(24h)
+    | where Message contains "DRIFT"
+    | project TimeGenerated, Message, Severity
+
+7.3 MLflow Experiment Logs
+─────────────────────────────────────────────────────────────────────────
+  Location: Azure ML Studio → Experiments → fraud-detection-classification-v3
+  URL: https://ml.azure.com/experiments/id/<experiment-id>
+  Key artifacts:
+    • metrics/validation_results.json
+    • artifacts/evaluation/confusion_matrix.png
+    • artifacts/evaluation/roc_curve.png
+    • artifacts/shap-explainer/shap_summary.png
+
+7.4 CI/CD Pipeline Logs
+─────────────────────────────────────────────────────────────────────────
+  Location: GitHub Actions → fraudshield-mlops repository
+  URL: https://github.com/fintech-corp/fraudshield-mlops/actions
+  Key workflows:
+    • ml-pipeline-test.yml (unit tests, linting)
+    • ml-pipeline-build.yml (training job)
+    • ml-pipeline-validate.yml (performance gates)
+    • ml-pipeline-deploy.yml (canary deployment)
+    • ml-pipeline-rollback.yml (emergency rollback)
+
+7.5 Storage Lifecycle Logs
+─────────────────────────────────────────────────────────────────────────
+  Location: Azure Monitor → Storage Account → fraudmlstore
+  Query:
+    StorageBlobLogs
+    | where TimeGenerated > ago(7d)
+    | where OperationName == "SetBlobTier" or OperationName == "DeleteBlob"
+    | project TimeGenerated, OperationName, BlobName, Tier
+
+--------------------------------------------------------------------------------
+8. PRODUCTION CHANGE CHECKLIST
+--------------------------------------------------------------------------------
+Owner: MLOps Engineer (must complete) / Data Scientist (must review)
+Required for: ANY change to production endpoint, model, or infrastructure
+
+Before Change:
+  □ Change documented in Jira ticket with risk assessment
+  □ Rollback plan documented (target version, rollback commands)
+  □ Change tested in staging environment
+  □ Data Scientist reviewed and approved model changes
+  □ MLOps Engineer reviewed and approved infrastructure changes
+  □ Monitoring dashboards updated if new metrics added
+  □ Team notified via Slack #ml-ops (minimum 30 min before change)
+
+During Change:
+  □ Change executed during low-traffic window (02:00–06:00 UTC preferred)
+  □ Canary deployment used for model changes (minimum 10% traffic, 30 min)
+  □ Real-time monitoring of latency, error rate, throughput
+  □ Rollback trigger ready (auto-rollback enabled for canary)
+
+After Change:
+  □ Verify endpoint health (Section 1.1–1.3)
+  □ Verify no drift alerts triggered by change
+  □ Update daily health check log
+  □ Close Jira ticket with summary
+  □ If incident occurred, schedule post-mortem within 24 hours
+  □ Update runbook if procedures changed
+
+================================================================================
+END OF OPERATIONAL RUNBOOK
+================================================================================

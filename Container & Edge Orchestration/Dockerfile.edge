@@ -1,0 +1,30 @@
+# Dockerfile — edge inference module
+# Base: Azure Linux (formerly CBL-Mariner) distroless-equivalent per Microsoft
+# container base image guidance. Do not substitute a generic full-OS base
+# without justifying the size/CVE-surface tradeoff in the design rationale.
+
+FROM mcr.microsoft.com/azurelinux/base/core:3.0 AS build
+# TODO: install build deps only in this stage; nothing here ships to final image
+WORKDIR /build
+COPY . .
+# TODO: build/compile step (e.g. pip install --no-cache-dir -r requirements.txt --target=/build/deps)
+
+FROM mcr.microsoft.com/azurelinux/distroless/python:3.12 AS final
+# TODO: swap distroless/python for distroless/base if using a compiled (Go/Rust) runtime binary instead
+
+WORKDIR /app
+COPY --from=build /build/deps /app/deps
+COPY --from=build /build/model /app/model
+COPY --from=build /build/src /app/src
+
+# Model runtime: ONNX Runtime or LiteRT (formerly TensorFlow Lite) — state choice in design rationale
+ENV MODEL_RUNTIME=onnxruntime
+ENV MODEL_PATH=/app/model/damage-detector.onnx
+
+# Resource hints (declare, do not enforce here — enforced via Kubernetes/IoT Edge createOptions)
+LABEL resource.cpu.request="TODO"
+LABEL resource.memory.request="TODO"
+LABEL resource.memory.limit="TODO"
+
+USER 65532:65532
+ENTRYPOINT ["/app/src/run_inference"]

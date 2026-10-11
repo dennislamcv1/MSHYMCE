@@ -1,0 +1,9 @@
+apiVersion: v2
+name: edge-inference-orchestrator
+description: Central AKS orchestrator for the edge inference pipeline (telemetry ingest, device registry sync, dashboard, GitOps-managed)
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+maintainers:
+  - name: TODO
+    email: TODO

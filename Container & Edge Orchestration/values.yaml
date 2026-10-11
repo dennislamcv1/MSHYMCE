@@ -1,0 +1,74 @@
+# values.yaml — central AKS orchestrator
+# This chart deploys ONLY the cloud-side control plane (ingest API, device
+# registry sync, telemetry pipeline, dashboard). Azure IoT Edge modules are
+# NOT deployed via Helm — they are deployed to devices via IoT Hub
+# deployment manifests. See iot-edge-manifest/deployment.template.json.
+
+edge:
+  enabled: false        # TODO: true only for edge-adjacent AKS Edge Essentials clusters (Azure IoT Operations scope), never for classic IoT Edge devices
+
+image:
+  registry: TODO.azurecr.io   # Azure Container Registry, geo-replicated across regions serving the 50 sites
+  repository: edge-inference/orchestrator
+  tag: "TODO"
+  pullPolicy: IfNotPresent
+
+replicaCount: 3
+
+resources:
+  requests:
+    cpu: "TODO"
+    memory: "TODO"
+  limits:
+    cpu: "TODO"
+    memory: "TODO"
+
+probes:
+  readinessProbe:
+    httpGet:
+      path: /healthz/ready
+      port: 8080
+    initialDelaySeconds: 5
+    periodSeconds: 10
+  livenessProbe:
+    httpGet:
+      path: /healthz/live
+      port: 8080
+    initialDelaySeconds: 10
+    periodSeconds: 15
+  startupProbe:
+    httpGet:
+      path: /healthz/startup
+      port: 8080
+    failureThreshold: 30
+    periodSeconds: 5
+
+deploymentStrategy:
+  type: RollingUpdate     # TODO: confirm Canary (Flagger + Flux) vs Blue-Green (node pool + Ingress weight) per design decision
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+
+lifecycleHooks:
+  helm:
+    preUpgrade: "TODO — e.g. schema migration job"
+    postUpgrade: "TODO — e.g. cache warm / smoke test job"
+
+gitops:
+  managedBy: flux-v2-aks-extension   # Do not hand-apply with kubectl in production; reconciled via Flux GitRepository + HelmRelease
+  sourceRepo: "TODO"
+  targetNamespace: edge-inference
+
+ingress:
+  enabled: true
+  className: "TODO"
+  tls:
+    enabled: true
+
+telemetry:
+  syncProtocol: mqtt         # MQTT v3.1.1/v5 or AMQP 1.0 over TLS — Azure IoT Hub-supported transports only. Do not use gRPC/plain HTTP2 for device sync.
+  batchSize: 500
+  dedupeKey: idempotency-key
+
+concurrencyLimits:
+  maxInFlightSyncBatches: "TODO"

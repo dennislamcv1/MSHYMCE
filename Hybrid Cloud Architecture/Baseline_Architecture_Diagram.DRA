@@ -1,0 +1,141 @@
+<mxfile host="app.diagrams.net" agent="Claude" version="24.7.17" type="device">
+  <diagram name="Fraud Detection Architecture" id="fraud-detect-1">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="920" pageHeight="660" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="azureZone" value="Azure — primary region" style="rounded=1;arcSize=5;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#3b7dd8;strokeWidth=1.5;dashed=1;dashPattern=6 4;verticalAlign=top;align=left;spacingLeft=14;spacingTop=6;fontSize=14;fontStyle=1;fontColor=#1c3f66;container=1;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="20" y="20" width="430" height="440" as="geometry" />
+        </mxCell>
+
+        <mxCell id="fraudModel" value="&lt;b&gt;Fraud detection model&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot; color=&quot;#3b5d80&quot;&gt;Microsoft Foundry / Azure ML&lt;/font&gt;" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#eaf2fc;strokeColor=#3b7dd8;strokeWidth=1.2;fontSize=12;fontColor=#1c3f66;" vertex="1" parent="1">
+          <mxGeometry x="45" y="60" width="170" height="55" as="geometry" />
+        </mxCell>
+
+        <mxCell id="aiGateway" value="&lt;b&gt;AI Gateway&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot; color=&quot;#3b5d80&quot;&gt;Azure API Management&lt;/font&gt;" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#eaf2fc;strokeColor=#3b7dd8;strokeWidth=1.2;fontSize=12;fontColor=#1c3f66;" vertex="1" parent="1">
+          <mxGeometry x="235" y="60" width="170" height="55" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edgeModelGw" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#3b7dd8;strokeWidth=1.3;startArrow=classic;startFill=1;endArrow=classic;endFill=1;" edge="1" parent="1" source="fraudModel" target="aiGateway">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="sessionStore" value="&lt;b&gt;Stateful session store&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot; color=&quot;#3b5d80&quot;&gt;Single-region Redis cache&lt;/font&gt;" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#eaf2fc;strokeColor=#3b7dd8;strokeWidth=1.2;fontSize=12;fontColor=#1c3f66;" vertex="1" parent="1">
+          <mxGeometry x="45" y="130" width="170" height="55" as="geometry" />
+        </mxCell>
+
+        <mxCell id="gpuCluster" value="&lt;b&gt;GPU inference cluster&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot; color=&quot;#3b5d80&quot;&gt;ND-series VMs, no schedule&lt;/font&gt;" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#eaf2fc;strokeColor=#3b7dd8;strokeWidth=1.2;fontSize=12;fontColor=#1c3f66;" vertex="1" parent="1">
+          <mxGeometry x="235" y="130" width="170" height="55" as="geometry" />
+        </mxCell>
+
+        <mxCell id="netPerimeter" value="&lt;b&gt;Network perimeter&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot; color=&quot;#3b5d80&quot;&gt;Partial NSG, missing WAF&lt;/font&gt;" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#eaf2fc;strokeColor=#3b7dd8;strokeWidth=1.2;fontSize=12;fontColor=#1c3f66;" vertex="1" parent="1">
+          <mxGeometry x="45" y="200" width="170" height="55" as="geometry" />
+        </mxCell>
+
+        <mxCell id="monitoring" value="&lt;b&gt;Monitoring&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot; color=&quot;#3b5d80&quot;&gt;Azure Monitor / App Insights&lt;/font&gt;" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#eaf2fc;strokeColor=#3b7dd8;strokeWidth=1.2;fontSize=12;fontColor=#1c3f66;" vertex="1" parent="1">
+          <mxGeometry x="235" y="200" width="170" height="55" as="geometry" />
+        </mxCell>
+
+        <mxCell id="modelDataStore" value="&lt;b&gt;Model data store&lt;/b&gt;" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#eaf2fc;strokeColor=#3b7dd8;strokeWidth=1.2;fontSize=12;fontColor=#1c3f66;" vertex="1" parent="1">
+          <mxGeometry x="45" y="270" width="170" height="55" as="geometry" />
+        </mxCell>
+
+        <mxCell id="azureVnet" value="&lt;b&gt;Azure VNet&lt;/b&gt;" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#eaf2fc;strokeColor=#3b7dd8;strokeWidth=1.2;fontSize=12;fontColor=#1c3f66;" vertex="1" parent="1">
+          <mxGeometry x="235" y="270" width="170" height="55" as="geometry" />
+        </mxCell>
+
+        <mxCell id="batchScheduler" value="&lt;b&gt;Batch inference scheduler&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot; color=&quot;#3b5d80&quot;&gt;Oversized H100 nodes for offline batch jobs&lt;/font&gt;" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#eaf2fc;strokeColor=#3b7dd8;strokeWidth=1.2;fontSize=12;fontColor=#1c3f66;" vertex="1" parent="1">
+          <mxGeometry x="45" y="340" width="360" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="awsZone" value="AWS — DR region" style="rounded=1;arcSize=5;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#d99a2b;strokeWidth=1.5;dashed=1;dashPattern=6 4;verticalAlign=top;align=left;spacingLeft=14;spacingTop=6;fontSize=14;fontStyle=1;fontColor=#6b4a10;container=1;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="480" y="20" width="400" height="260" as="geometry" />
+        </mxCell>
+
+        <mxCell id="replModelStore" value="&lt;b&gt;Replicated model store&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot; color=&quot;#8a6a2f&quot;&gt;S3 + ECS (cold standby)&lt;/font&gt;" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#fdf1de;strokeColor=#d99a2b;strokeWidth=1.2;fontSize=12;fontColor=#6b4a10;" vertex="1" parent="1">
+          <mxGeometry x="498" y="60" width="365" height="55" as="geometry" />
+        </mxCell>
+
+        <mxCell id="drEndpoint" value="&lt;b&gt;DR inference endpoint&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot; color=&quot;#8a6a2f&quot;&gt;EC2 GPU — manual failover&lt;/font&gt;" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#fdf1de;strokeColor=#d99a2b;strokeWidth=1.2;fontSize=12;fontColor=#6b4a10;" vertex="1" parent="1">
+          <mxGeometry x="498" y="130" width="365" height="55" as="geometry" />
+        </mxCell>
+
+        <mxCell id="crossCloudVpn" value="&lt;b&gt;Cross-cloud VPN / Transit&lt;/b&gt;" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#fdf1de;strokeColor=#d99a2b;strokeWidth=1.2;fontSize=12;fontColor=#6b4a10;" vertex="1" parent="1">
+          <mxGeometry x="498" y="200" width="365" height="55" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edgePerimVpn" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#9b9b9b;strokeWidth=1.3;dashed=1;dashPattern=3 3;endArrow=classic;endFill=1;" edge="1" parent="1" source="netPerimeter" target="crossCloudVpn">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edgeZone" value="Edge inference nodes" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#2f9e5c;strokeWidth=1.5;dashed=1;dashPattern=6 4;verticalAlign=top;align=left;spacingLeft=14;spacingTop=6;fontSize=14;fontStyle=1;fontColor=#1b5e37;container=1;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="480" y="300" width="400" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edgeNodeA" value="&lt;b&gt;Edge node A&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot; color=&quot;#3d7d54&quot;&gt;Retail branch&lt;/font&gt;" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e9f7ef;strokeColor=#2f9e5c;strokeWidth=1.2;fontSize=12;fontColor=#1b5e37;" vertex="1" parent="1">
+          <mxGeometry x="498" y="345" width="175" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edgeNodeB" value="&lt;b&gt;Edge node B&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot; color=&quot;#3d7d54&quot;&gt;ATM cluster&lt;/font&gt;" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#e9f7ef;strokeColor=#2f9e5c;strokeWidth=1.2;fontSize=12;fontColor=#1b5e37;" vertex="1" parent="1">
+          <mxGeometry x="686" y="345" width="175" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edgeVpnEdge" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeColor=#9b9b9b;strokeWidth=1.3;dashed=1;dashPattern=3 3;endArrow=classic;endFill=1;" edge="1" parent="1" source="crossCloudVpn" target="edgeZone">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="badge1" value="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d43b2f;strokeColor=none;fontColor=#ffffff;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="18" y="130" width="20" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="badge2" value="2" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d43b2f;strokeColor=none;fontColor=#ffffff;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="18" y="200" width="20" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="badge3" value="3" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d43b2f;strokeColor=none;fontColor=#ffffff;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="212" y="130" width="20" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="badge4" value="4" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d43b2f;strokeColor=none;fontColor=#ffffff;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="212" y="200" width="20" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="badge5" value="5" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d43b2f;strokeColor=none;fontColor=#ffffff;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="18" y="340" width="20" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="legendBox" value="Callout legend — WAF risk locations" style="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#c9c9c9;strokeWidth=1.2;verticalAlign=top;align=left;spacingLeft=14;spacingTop=8;fontSize=14;fontStyle=1;fontColor=#1a1a1a;container=1;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="20" y="480" width="860" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lb1" value="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d43b2f;strokeColor=none;fontColor=#ffffff;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="29" y="519" width="18" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="lt1" value="&lt;b&gt;Reliability&lt;/b&gt; — single-region stateful Redis; no multi-region failover configured" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=11.5;fontColor=#1a1a1a;" vertex="1" parent="1">
+          <mxGeometry x="54" y="519" width="800" height="18" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lb2" value="2" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d43b2f;strokeColor=none;fontColor=#ffffff;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="29" y="544" width="18" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="lt2" value="&lt;b&gt;Security&lt;/b&gt; — partial NSG rules; missing WAF policy and network segmentation for PII traffic" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=11.5;fontColor=#1a1a1a;" vertex="1" parent="1">
+          <mxGeometry x="54" y="544" width="800" height="18" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lb3" value="3" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d43b2f;strokeColor=none;fontColor=#ffffff;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="29" y="569" width="18" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="lt3" value="&lt;b&gt;Cost optimization&lt;/b&gt; — GPU cluster runs 24/7 with no autoscaling or spot scheduling; ~40% overrun" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=11.5;fontColor=#1a1a1a;" vertex="1" parent="1">
+          <mxGeometry x="54" y="569" width="800" height="18" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lb4" value="4" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d43b2f;strokeColor=none;fontColor=#ffffff;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="29" y="594" width="18" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="lt4" value="&lt;b&gt;Operational excellence&lt;/b&gt; — no post-incident review process; runbooks absent for DR failover" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=11.5;fontColor=#1a1a1a;" vertex="1" parent="1">
+          <mxGeometry x="54" y="594" width="800" height="18" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lb5" value="5" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d43b2f;strokeColor=none;fontColor=#ffffff;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="29" y="619" width="18" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="lt5" value="&lt;b&gt;Performance efficiency&lt;/b&gt; — H100 nodes provisioned for offline batch; oversized for actual inference load" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=11.5;fontColor=#1a1a1a;" vertex="1" parent="1">
+          <mxGeometry x="54" y="619" width="800" height="18" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

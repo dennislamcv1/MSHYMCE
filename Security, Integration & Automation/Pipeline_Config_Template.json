@@ -1,0 +1,217 @@
+{
+  "$schema": "https://example.invalid/secure-health-integration-pipeline-template.schema.json",
+  "templateStatus": "Design-time template; not deployable as-is",
+  "reviewedDate": "2026-08-02",
+  "safety": {
+    "syntheticDataOnly": true,
+    "prohibitPhiInLogs": true,
+    "prohibitSecretsInConfig": true,
+    "useManagedIdentity": true,
+    "placeholderConvention": "<REPLACE_WITH_...>"
+  },
+  "pipeline": {
+    "name": "pl_<partner>_hl7v2_to_fhir",
+    "owner": "Integration Engineering",
+    "criticality": "Tier 1",
+    "correlationId": "@pipeline().RunId",
+    "parameters": {
+      "partnerId": {
+        "type": "string",
+        "defaultValue": "<PARTNER_ID>"
+      },
+      "sourcePath": {
+        "type": "string",
+        "defaultValue": "<ENCRYPTED_SOURCE_PATH>"
+      },
+      "batchId": {
+        "type": "string",
+        "defaultValue": "<BATCH_ID>"
+      },
+      "replayAuthorized": {
+        "type": "bool",
+        "defaultValue": false
+      }
+    },
+    "connectivity": {
+      "pattern": "<SELF_HOSTED_IR_OR_MANAGED_VNET_PRIVATE_ENDPOINT>",
+      "integrationRuntime": "<IR_NAME>",
+      "publicNetworkAccess": "Disabled where supported",
+      "privateDnsValidated": true
+    },
+    "identity": {
+      "authentication": "ManagedIdentity",
+      "principal": "<USER_ASSIGNED_MANAGED_IDENTITY>",
+      "rbacAssignments": [
+        {
+          "scope": "<SOURCE_SCOPE>",
+          "role": "<MINIMUM_REQUIRED_ROLE>"
+        },
+        {
+          "scope": "<STAGING_SCOPE>",
+          "role": "<MINIMUM_REQUIRED_ROLE>"
+        },
+        {
+          "scope": "<FHIR_SCOPE>",
+          "role": "<FHIR_DATA_ROLE>"
+        }
+      ],
+      "keyVaultUse": "Only for keys/certificates/secrets that cannot be eliminated"
+    },
+    "activities": [
+      {
+        "name": "AcquireInput",
+        "type": "Copy",
+        "input": "<PARTNER_SOURCE>",
+        "output": "<ENCRYPTED_QUARANTINEABLE_STAGING>",
+        "logging": {
+          "includePayload": false,
+          "includeIdentifiers": false
+        },
+        "retry": {
+          "count": 3,
+          "intervalSeconds": 30,
+          "strategy": "exponential-backoff-with-jitter",
+          "onlyTransientErrors": true
+        },
+        "timeout": "00:20:00"
+      },
+      {
+        "name": "ConvertToFhirR4",
+        "type": "WebOrFunction",
+        "operation": "$convert-data",
+        "sourceFormat": "HL7v2",
+        "templateCollection": "<MICROSOFT_OR_APPROVED_CUSTOM_TEMPLATES>",
+        "logging": {
+          "includePayload": false,
+          "includeIdentifiers": false
+        },
+        "onValidationFailure": "Quarantine"
+      },
+      {
+        "name": "ValidateFhir",
+        "type": "ValidationGate",
+        "profiles": [
+          "<REQUIRED_FHIR_PROFILE_URL>"
+        ],
+        "terminology": [
+          "<VALUE_SET_OR_CODE_SYSTEM>"
+        ],
+        "checks": [
+          "required-fields",
+          "profile-conformance",
+          "terminology",
+          "referential-integrity"
+        ],
+        "retry": {
+          "count": 0,
+          "reason": "Validation errors are non-transient"
+        }
+      },
+      {
+        "name": "WriteNdjsonStaging",
+        "type": "Copy",
+        "format": "NDJSON",
+        "encryptionAtRest": true,
+        "immutability": "<ORG_DECISION>",
+        "retentionDays": "<ORG_DEFINED>"
+      },
+      {
+        "name": "ImportToFhir",
+        "type": "Web",
+        "operation": "import",
+        "mode": "<INITIAL_OR_INCREMENTAL>",
+        "idempotencyKey": "<PARTNER_ID>:<BATCH_ID>",
+        "retry": {
+          "count": 3,
+          "intervalSeconds": 60,
+          "strategy": "exponential-backoff-with-jitter",
+          "onlyTransientErrors": true
+        }
+      },
+      {
+        "name": "Reconcile",
+        "type": "ValidationGate",
+        "checks": [
+          "source-count",
+          "accepted-count",
+          "quarantine-count",
+          "duplicate-count",
+          "missing-correlation-ids"
+        ],
+        "failureAction": "CreateIncidentAndStop"
+      }
+    ],
+    "quarantine": {
+      "location": "<PRIVATE_ENCRYPTED_QUARANTINE_STORE>",
+      "writeOnceEvidence": "<ORG_DECISION>",
+      "requiredMetadata": [
+        "partnerId",
+        "batchId",
+        "correlationId",
+        "failureCode",
+        "failureStage",
+        "timestamp"
+      ],
+      "exclude": [
+        "raw payload from logs",
+        "secrets",
+        "access tokens"
+      ],
+      "replay": {
+        "approvalRequired": true,
+        "approverRole": "<INTEGRATION_DUTY_MANAGER>",
+        "maxBatchSize": "<SCENARIO_LIMIT>",
+        "duplicateDetection": "<FHIR_IDENTIFIER_OR_BUSINESS_KEY_RULE>",
+        "postReplayReconciliation": true
+      }
+    },
+    "observability": {
+      "diagnosticSettings": [
+        "ADFPipelineRun",
+        "ADFActivityRun",
+        "FHIR AuditLogs"
+      ],
+      "workspace": "<LOG_ANALYTICS_WORKSPACE>",
+      "archive": "<EVIDENCE_STORAGE_ACCOUNT>",
+      "customDimensions": [
+        "partnerId",
+        "batchId",
+        "correlationId",
+        "stage",
+        "result"
+      ],
+      "forbiddenDimensions": [
+        "patientName",
+        "mrn",
+        "dateOfBirth",
+        "rawFhirResource",
+        "rawHl7Message",
+        "accessToken"
+      ]
+    },
+    "automation": {
+      "automatic": [
+        "create incident",
+        "pause new batch acquisition after threshold",
+        "route invalid items to quarantine"
+      ],
+      "approvalGated": [
+        "large replay",
+        "access revocation",
+        "emergency isolation",
+        "retention change",
+        "delete or purge"
+      ],
+      "rollback": "<ROLLBACK_PLAN_ID>",
+      "postActionValidation": "<VALIDATION_QUERY_OR_CHECKLIST>",
+      "runbookId": "RB-INGEST-001"
+    }
+  },
+  "learnerDecisionRecord": {
+    "scenarioFactsUsed": [],
+    "assumptions": [],
+    "tradeoffs": [],
+    "openQuestions": [],
+    "evidence": []
+  }
+}

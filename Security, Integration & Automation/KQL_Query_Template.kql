@@ -1,0 +1,154 @@
+// Secure Integration Architecture — KQL Query Template
+// Reviewed: 2026-08-02
+// Safety rule: Do not project request bodies, clinical values, patient names, MRNs,
+// access tokens, secrets, or unredacted RequestUri values into dashboards or tickets.
+// Verify table names and diagnostic settings in the target workspace before use.
+
+// ================================================================
+// 0. Common parameters
+// ================================================================
+let Lookback = 24h;
+let BinSize = 15m;
+let InitialFailureRateThreshold = 0.005; // 0.5%; justify against scenario SLO
+let LogFreshnessMinutes = 20;           // scenario window plus ingestion allowance
+
+// ================================================================
+// 1. FHIR operation success/failure rate by resource type
+// Table documented for the FHIR service in Azure Health Data Services.
+// ================================================================
+MicrosoftHealthcareApisAuditLogs
+| where TimeGenerated >= ago(Lookback)
+| summarize
+    Requests = count(),
+    Failures = countif(ResultType == "Failed")
+    by bin(TimeGenerated, BinSize), FhirResourceType
+| extend FailureRate = todouble(Failures) / iif(Requests == 0, 1.0, todouble(Requests))
+| extend Breach = FailureRate > InitialFailureRateThreshold
+| order by TimeGenerated asc
+
+// ================================================================
+// 2. Unauthorized or forbidden FHIR requests
+// ================================================================
+MicrosoftHealthcareApisAuditLogs
+| where TimeGenerated >= ago(Lookback)
+| where StatusCode in (401, 403)
+| summarize Attempts = count(), DistinctIPs = dcount(CallerIPAddress)
+    by bin(TimeGenerated, BinSize), CallerIdentityObjectId, OperationName
+| order by Attempts desc
+
+// ================================================================
+// 3. FHIR operation volume anomaly by caller object ID
+// Replace BaselineDays and sensitivity after observing normal traffic.
+// ================================================================
+let BaselineDays = 7d;
+let CurrentWindow = 1h;
+let Baseline =
+    MicrosoftHealthcareApisAuditLogs
+    | where TimeGenerated between (ago(BaselineDays + CurrentWindow) .. ago(CurrentWindow))
+    | summarize BaselineHourly = count() / (BaselineDays / 1h)
+        by CallerIdentityObjectId, OperationName;
+let Current =
+    MicrosoftHealthcareApisAuditLogs
+    | where TimeGenerated >= ago(CurrentWindow)
+    | summarize CurrentCount = count() by CallerIdentityObjectId, OperationName;
+Current
+| join kind=leftouter Baseline on CallerIdentityObjectId, OperationName
+| extend BaselineHourly = coalesce(BaselineHourly, 0.0)
+| extend Ratio = CurrentCount / iif(BaselineHourly < 1.0, 1.0, BaselineHourly)
+| where CurrentCount >= 20 and Ratio >= 3.0
+| project CallerIdentityObjectId, OperationName, CurrentCount, BaselineHourly, Ratio
+| order by Ratio desc
+
+// ================================================================
+// 4. FHIR audit-log freshness
+// Alert when diagnostic logs stop arriving beyond the scenario window.
+// ================================================================
+MicrosoftHealthcareApisAuditLogs
+| summarize LastEvent = max(TimeGenerated)
+| extend MinutesSinceLastEvent = datetime_diff('minute', now(), LastEvent) * -1
+| extend Breach = MinutesSinceLastEvent > LogFreshnessMinutes
+
+// ================================================================
+// 5. Privacy-safe operation summary
+// Do not display raw RequestUri. Summarize by operation and resource type.
+// ================================================================
+MicrosoftHealthcareApisAuditLogs
+| where TimeGenerated >= ago(Lookback)
+| summarize Requests = count(), Failures = countif(ResultType == "Failed")
+    by OperationName, FhirResourceType, StatusCode
+| order by Requests desc
+
+// ================================================================
+// 6. ADF pipeline availability (resource-specific mode)
+// ================================================================
+ADFPipelineRun
+| where TimeGenerated >= ago(Lookback)
+| where Status !in ('InProgress', 'Queued')
+| summarize
+    Runs = count(),
+    FailedRuns = countif(Status != 'Succeeded'),
+    AvailabilityPct = 100.0 - (100.0 * countif(Status != 'Succeeded') / count())
+    by bin(TimeGenerated, 1h), PipelineName, _ResourceId
+| order by TimeGenerated asc
+
+// ================================================================
+// 7. Latest ADF pipeline status
+// ================================================================
+ADFPipelineRun
+| where TimeGenerated >= ago(Lookback)
+| summarize arg_max(TimeGenerated, *) by RunId
+| project TimeGenerated, PipelineName, RunId, Status, FailureType, ErrorCode, CorrelationId
+| order by TimeGenerated desc
+
+// ================================================================
+// 8. Top ADF activity failures
+// Do not project Input or Output fields unless you have verified they contain no PHI.
+// ================================================================
+ADFActivityRun
+| where TimeGenerated >= ago(Lookback)
+| where Status !in ('InProgress', 'Queued', 'Succeeded')
+| summarize FailureCount = count()
+    by ActivityName, ActivityType, FailureType, ErrorCode, EffectiveIntegrationRuntime
+| top 10 by FailureCount desc
+
+// ================================================================
+// 9. ADF activity duration (p50/p95) for completed runs
+// ================================================================
+ADFActivityRun
+| where TimeGenerated >= ago(Lookback)
+| where Status == 'Succeeded' and isnotnull(Start) and isnotnull(End)
+| extend DurationSeconds = datetime_diff('second', End, Start)
+| summarize
+    P50Seconds = percentile(DurationSeconds, 50),
+    P95Seconds = percentile(DurationSeconds, 95),
+    Runs = count()
+    by bin(TimeGenerated, 1h), PipelineName, ActivityName
+| order by TimeGenerated asc
+
+// ================================================================
+// 10. Alert-to-runbook output shape
+// Use this projection pattern when creating an alert rule.
+// ================================================================
+ADFPipelineRun
+| where TimeGenerated >= ago(30m)
+| where Status == 'Failed'
+| summarize Failures = count(), LatestFailure = max(TimeGenerated)
+    by PipelineName, FailureType, ErrorCode
+| extend Severity = iif(Failures >= 3, 'P1', 'P2')
+| extend RunbookId = 'RB-INGEST-001'
+| project LatestFailure, Severity, PipelineName, FailureType, ErrorCode, Failures, RunbookId
+
+// ================================================================
+// Learner query record (copy for each custom query)
+// ================================================================
+// Query ID: [KQL-###]
+// Purpose: [Operational / evidence / security]
+// Data source and table mode: [Resource-specific / AzureDiagnostics / custom]
+// Fields assumed: [...]
+// PHI exposure review: [What is excluded or normalized]
+// Threshold basis: [Scenario SLO / baseline / evidence window]
+// Alert severity and evaluation window: [...]
+// Action group / owner: [...]
+// Runbook ID: [...]
+// Validation method: [...]
+// Known limitations: [...]

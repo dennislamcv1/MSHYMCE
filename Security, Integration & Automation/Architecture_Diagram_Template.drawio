@@ -1,0 +1,109 @@
+<mxfile host="app.diagrams.net" agent="ChatGPT">
+  <diagram id="secure-integration-template" name="Architecture template">
+    <mxGraphModel grid="1" page="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="z1" parent="1" style="swimlane;horizontal=0;startSize=28;rounded=0;html=1;whiteSpace=wrap;fillColor=#F3F6FA;strokeColor=#7F8C8D;fontStyle=1;fontSize=13;" value="Partner hospital / on-premises" vertex="1">
+          <mxGeometry height="560" width="220" x="20" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="z2" parent="1" style="swimlane;horizontal=0;startSize=28;rounded=0;html=1;whiteSpace=wrap;fillColor=#F3F6FA;strokeColor=#7F8C8D;fontStyle=1;fontSize=13;" value="Connectivity and integration" vertex="1">
+          <mxGeometry height="560" width="250" x="260" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="z3" parent="1" style="swimlane;horizontal=0;startSize=28;rounded=0;html=1;whiteSpace=wrap;fillColor=#F3F6FA;strokeColor=#7F8C8D;fontStyle=1;fontSize=13;" value="Azure data services" vertex="1">
+          <mxGeometry height="560" width="260" x="530" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="n8" parent="z3" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#0F6CBD;fontSize=11;" value="FHIR service in Azure Health Data Services [private link + Azure RBAC]" vertex="1">
+          <mxGeometry height="80" width="180" x="70" y="350" as="geometry" />
+        </mxCell>
+        <mxCell id="z4" parent="1" style="swimlane;horizontal=0;startSize=28;rounded=0;html=1;whiteSpace=wrap;fillColor=#F3F6FA;strokeColor=#7F8C8D;fontStyle=1;fontSize=13;" value="Application and analytics" vertex="1">
+          <mxGeometry height="560" width="240" x="810" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="n10" parent="z4" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#0F6CBD;fontSize=11;" value="Authorized application / API [human or workload identity]" vertex="1">
+          <mxGeometry height="70" width="180" x="50" y="270" as="geometry" />
+        </mxCell>
+        <mxCell id="z5" parent="1" style="swimlane;horizontal=0;startSize=28;rounded=0;html=1;whiteSpace=wrap;fillColor=#F3F6FA;strokeColor=#7F8C8D;fontStyle=1;fontSize=13;" value="Management, security, and evidence" vertex="1">
+          <mxGeometry height="560" width="280" x="1070" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="n14" parent="z5" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF4CE;strokeColor=#C19C00;fontSize=11;" value="Evidence archive / retention owner" vertex="1">
+          <mxGeometry height="60" width="220" x="45" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="n1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#0F6CBD;fontSize=11;" value="EHR / interface engine [protocol, owner, data class]" vertex="1">
+          <mxGeometry height="70" width="150" x="55" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="n2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#0F6CBD;fontSize=11;" value="Partner identity / certificate [replace or remove]" vertex="1">
+          <mxGeometry height="60" width="150" x="55" y="230" as="geometry" />
+        </mxCell>
+        <mxCell id="n3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F3FA;strokeColor=#0F6CBD;fontSize=11;" value="VPN / ExpressRoute / approved private path" vertex="1">
+          <mxGeometry height="60" width="170" x="300" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="n4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#0F6CBD;fontSize=11;" value="Self-hosted IR or approved connector [choose and justify]" vertex="1">
+          <mxGeometry height="70" width="170" x="300" y="220" as="geometry" />
+        </mxCell>
+        <mxCell id="n5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#0F6CBD;fontSize=11;" value="Landing / queue / encrypted staging [quarantine + correlation ID]" vertex="1">
+          <mxGeometry height="80" width="170" x="300" y="340" as="geometry" />
+        </mxCell>
+        <mxCell id="n6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#0F6CBD;fontSize=11;" value="Azure Data Factory [managed identity, private endpoint]" vertex="1">
+          <mxGeometry height="70" width="180" x="570" y="130" as="geometry" />
+        </mxCell>
+        <mxCell id="n7" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#0F6CBD;fontSize=11;" value="$convert-data / validation gate [profile + terminology]" vertex="1">
+          <mxGeometry height="70" width="180" x="570" y="245" as="geometry" />
+        </mxCell>
+        <mxCell id="n9" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#0F6CBD;fontSize=11;" value="Decision-support analytics / AI workload [no autonomous clinical action]" vertex="1">
+          <mxGeometry height="80" width="180" x="840" y="180" as="geometry" />
+        </mxCell>
+        <mxCell id="n11" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F3FA;strokeColor=#0F6CBD;fontSize=11;" value="Microsoft Entra ID / Azure RBAC / PIM" vertex="1">
+          <mxGeometry height="60" width="220" x="1115" y="110" as="geometry" />
+        </mxCell>
+        <mxCell id="n12" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F3FA;strokeColor=#0F6CBD;fontSize=11;" value="Azure Key Vault [RBAC; non-eliminable key/cert only]" vertex="1">
+          <mxGeometry height="70" width="220" x="1115" y="210" as="geometry" />
+        </mxCell>
+        <mxCell id="n13" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF4CE;strokeColor=#C19C00;fontSize=11;" value="Azure Monitor + Log Analytics [privacy-safe metadata]" vertex="1">
+          <mxGeometry height="70" width="220" x="1115" y="330" as="geometry" />
+        </mxCell>
+        <mxCell id="n15" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#0F6CBD;fontSize=11;" value="Logic Apps / Functions [approval + rollback gates]" vertex="1">
+          <mxGeometry height="60" width="220" x="1115" y="540" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" edge="1" parent="1" source="n1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#0F6CBD;" target="n3" value="Data: [protocol/TLS]">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="n3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#0F6CBD;" target="n4" value="Data">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="n4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#0F6CBD;" target="n5" value="Data">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="1" source="n5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#0F6CBD;" target="n6" value="Data">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="n6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#0F6CBD;" target="n7" value="Data">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" edge="1" parent="1" source="n7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#0F6CBD;" target="n8" value="FHIR R4 / import">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="n8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#0F6CBD;" target="n9" value="Data">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" edge="1" parent="1" source="n9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeWidth=2;strokeColor=#0F6CBD;" target="n10" value="Decision support">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e20" edge="1" parent="1" source="n11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=open;dashed=1;strokeColor=#7F8C8D;" target="n6" value="Identity/RBAC">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e23" edge="1" parent="1" source="n6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=open;dashed=1;strokeColor=#7F8C8D;" target="n13" value="Diagnostics">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e24" edge="1" parent="1" source="n8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=open;dashed=1;strokeColor=#7F8C8D;" target="n13" value="Audit logs">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e25" edge="1" parent="1" source="n13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=open;dashed=1;strokeColor=#7F8C8D;" target="n15" value="Alert">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e27" edge="1" parent="1" source="n13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=open;dashed=1;strokeColor=#7F8C8D;" target="n14" value="Evidence archive">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
